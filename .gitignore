@@ -1,0 +1,14 @@
+# Logs and temporary files
+*.log
+error_log
+.well-known/
+
+# Uploaded user media & files
+ems/backend/uploads/*
+!ems/backend/uploads/**/.gitkeep
+
+# OS / Environment files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

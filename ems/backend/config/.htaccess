@@ -1,0 +1,13 @@
+# Server configuration and credentials. Nothing in this directory is ever meant
+# to be fetched over HTTP — PHP includes these files from disk, so denying web
+# access costs nothing and closes the whole folder rather than one filename.
+#
+# This dir holds database.php and the Firebase service-account key.
+
+Require all denied
+
+<IfModule mod_php.c>
+    php_admin_flag engine off
+</IfModule>
+
+Options -Indexes
