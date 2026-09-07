@@ -685,6 +685,7 @@ unset($_SESSION['flash']);
                         <td>
                             <small><?php echo date('d-m-Y', strtotime($l['created_at'])); ?></small>
                         </td>
+                        <td class="text-nowrap" onclick="event.stopPropagation()">
                             <button class="btn btn-sm btn-outline-secondary" title="View details"
                                     onclick='showLead(<?php echo htmlspecialchars(json_encode($l), ENT_QUOTES); ?>)'>
                                 <i class="fas fa-eye"></i>
