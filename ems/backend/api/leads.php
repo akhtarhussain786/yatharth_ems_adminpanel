@@ -119,14 +119,13 @@ function getLeads($db, $auth, $data) {
 
     $sql = "SELECT l.*, 
             cr.id as creator_id, cr.first_name as creator_first, cr.last_name as creator_last, cr.employee_code as creator_code,
-            ucr.username as creator_username, rcr.display_name as creator_role_display, rcr.name as creator_role,
+            ucr.username as creator_username,
             d.name as creator_department,
             a.id as assigned_to_id, a.first_name as assigned_first, a.last_name as assigned_last, a.employee_code as assigned_code,
             s.id as assigned_sales_id, s.first_name as sales_first, s.last_name as sales_last, s.employee_code as sales_code
             FROM leads l
-            LEFT JOIN employees cr ON (cr.id = l.employee_id OR cr.id = l.created_by OR cr.user_id = l.created_by)
-            LEFT JOIN users ucr ON (ucr.id = l.created_by OR ucr.id = cr.user_id)
-            LEFT JOIN roles rcr ON rcr.id = ucr.role_id
+            LEFT JOIN employees cr ON cr.id = COALESCE(l.created_by, l.employee_id)
+            LEFT JOIN users ucr ON ucr.id = l.created_by
             LEFT JOIN departments d ON d.id = cr.department_id
             LEFT JOIN employees a ON a.id = l.assigned_to
             LEFT JOIN employees s ON s.id = l.assigned_sales

@@ -30,7 +30,7 @@ function getLeadCreatorStats($pdo) {
             -- empty array, so the Lead Creator panel just showed nothing, with
             -- no sign that anything had gone wrong.
             LEFT JOIN departments d ON d.id = e.department_id
-            LEFT JOIN leads l ON (l.employee_id = e.id OR l.created_by = e.id OR l.created_by = e.user_id)
+            LEFT JOIN leads l ON l.employee_id = e.id
             WHERE e.status = 1
             GROUP BY e.id
             ORDER BY total_leads DESC
@@ -209,16 +209,14 @@ $assigneeFilter = $_GET['assigned_to'] ?? '';
 $dateFrom = $_GET['date_from'] ?? '';
 $dateTo = $_GET['date_to'] ?? '';
 
-// Modified SQL to include creator details (supports both employee and admin user accounts)
+// Query leads with creator details (safe join with fallback)
 $sql = "SELECT 
             l.*, 
             e.id as creator_emp_id,
             e.first_name as creator_first, 
             e.last_name as creator_last,
             e.employee_code as creator_code,
-            uc.username as creator_username,
-            rc.display_name as creator_role_display,
-            rc.name as creator_role,
+            u.username as creator_username,
             a.id as assignee_emp_id,
             a.first_name as assigned_first, 
             a.last_name as assigned_last,
@@ -228,9 +226,8 @@ $sql = "SELECT
             s.last_name as sales_last,
             s.employee_code as sales_code
         FROM leads l 
-        LEFT JOIN employees e ON (e.id = l.employee_id OR e.id = l.created_by OR e.user_id = l.created_by) 
-        LEFT JOIN users uc ON (uc.id = l.created_by OR uc.id = e.user_id)
-        LEFT JOIN roles rc ON rc.id = uc.role_id
+        LEFT JOIN employees e ON e.id = COALESCE(l.created_by, l.employee_id) 
+        LEFT JOIN users u ON u.id = l.created_by
         LEFT JOIN employees a ON a.id = l.assigned_to 
         LEFT JOIN employees s ON s.id = l.assigned_sales 
         WHERE 1=1";
@@ -286,9 +283,29 @@ if ($dateTo) {
 }
 
 $sql .= " ORDER BY l.created_at DESC";
-$stmt = $pdo->prepare($sql); 
-$stmt->execute($params); 
-$leads = $stmt->fetchAll();
+$leads = [];
+try {
+    $stmt = $pdo->prepare($sql); 
+    $stmt->execute($params); 
+    $leads = $stmt->fetchAll();
+} catch (Throwable $e) {
+    error_log('Leads primary query failed: ' . $e->getMessage());
+    try {
+        $fallbackSql = "SELECT l.*, 
+                e.id as creator_emp_id, e.first_name as creator_first, e.last_name as creator_last, e.employee_code as creator_code,
+                a.id as assignee_emp_id, a.first_name as assigned_first, a.last_name as assigned_last, a.employee_code as assignee_code,
+                s.id as sales_emp_id, s.first_name as sales_first, s.last_name as sales_last, s.employee_code as sales_code
+            FROM leads l 
+            LEFT JOIN employees e ON e.id = COALESCE(l.created_by, l.employee_id) 
+            LEFT JOIN employees a ON a.id = l.assigned_to 
+            LEFT JOIN employees s ON s.id = l.assigned_sales 
+            ORDER BY l.created_at DESC";
+        $leads = $pdo->query($fallbackSql)->fetchAll();
+    } catch (Throwable $e2) {
+        error_log('Leads fallback query failed: ' . $e2->getMessage());
+        $leads = [];
+    }
+}
 
 // Get all employees for creator filter
 $allEmployees = $pdo->query("SELECT id, first_name, last_name, employee_code FROM employees WHERE status = 1 ORDER BY first_name")->fetchAll();
@@ -591,8 +608,7 @@ unset($_SESSION['flash']);
                                 $creatorName .= ' <small class="text-muted">(' . $l['creator_code'] . ')</small>';
                             }
                         } elseif (!empty($l['creator_username'])) {
-                            $roleLabel = !empty($l['creator_role_display']) ? $l['creator_role_display'] : (!empty($l['creator_role']) ? ucfirst(str_replace('_', ' ', $l['creator_role'])) : 'Admin');
-                            $creatorName = '<span class="fw-semibold text-primary"><i class="fas fa-user-shield me-1"></i>' . sanitize($l['creator_username']) . '</span> <small class="text-muted">(' . sanitize($roleLabel) . ')</small>';
+                            $creatorName = '<span class="fw-semibold text-primary"><i class="fas fa-user-shield me-1"></i>' . sanitize($l['creator_username']) . '</span>';
                         } else {
                             $creatorName = '<span class="badge bg-secondary-subtle text-dark border"><i class="fas fa-shield-halved me-1 text-primary"></i>Admin Panel</span>';
                         }
