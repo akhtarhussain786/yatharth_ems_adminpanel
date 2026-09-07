@@ -30,7 +30,7 @@ function getLeadCreatorStats($pdo) {
             -- empty array, so the Lead Creator panel just showed nothing, with
             -- no sign that anything had gone wrong.
             LEFT JOIN departments d ON d.id = e.department_id
-            LEFT JOIN leads l ON l.employee_id = e.id
+            LEFT JOIN leads l ON (l.employee_id = e.id OR l.created_by = e.id OR l.created_by = e.user_id)
             WHERE e.status = 1
             GROUP BY e.id
             ORDER BY total_leads DESC
@@ -118,6 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['action'] ?? '') === 'create
     $st = $pdo->prepare("SELECT id FROM employees WHERE user_id = ? LIMIT 1");
     $st->execute([$_SESSION['admin_id']]);
     $creatorEmpId = $st->fetchColumn() ?: null;
+    $adminUserId = $_SESSION['admin_id'] ?? null;
 
     $assignedTo = adminAutoAssignTelecaller($pdo);
 
@@ -130,7 +131,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['action'] ?? '') === 'create
             ->execute([
                 $name, $name, $phone, $phone, $email, $email,
                 $company, $city, $source, $source, $campaign, $requirement, $budget,
-                $priority, $notes, $creatorEmpId, $creatorEmpId, $assignedTo,
+                $priority, $notes, $creatorEmpId, $creatorEmpId ?: $adminUserId, $assignedTo,
                 $assignedTo ? $_SESSION['admin_id'] : null,
             ]);
 
@@ -208,13 +209,16 @@ $assigneeFilter = $_GET['assigned_to'] ?? '';
 $dateFrom = $_GET['date_from'] ?? '';
 $dateTo = $_GET['date_to'] ?? '';
 
-// Modified SQL to include creator details
+// Modified SQL to include creator details (supports both employee and admin user accounts)
 $sql = "SELECT 
             l.*, 
             e.id as creator_emp_id,
             e.first_name as creator_first, 
             e.last_name as creator_last,
             e.employee_code as creator_code,
+            uc.username as creator_username,
+            rc.display_name as creator_role_display,
+            rc.name as creator_role,
             a.id as assignee_emp_id,
             a.first_name as assigned_first, 
             a.last_name as assigned_last,
@@ -224,7 +228,9 @@ $sql = "SELECT
             s.last_name as sales_last,
             s.employee_code as sales_code
         FROM leads l 
-        LEFT JOIN employees e ON e.id = COALESCE(l.created_by, l.employee_id) 
+        LEFT JOIN employees e ON (e.id = l.employee_id OR e.id = l.created_by OR e.user_id = l.created_by) 
+        LEFT JOIN users uc ON (uc.id = l.created_by OR uc.id = e.user_id)
+        LEFT JOIN roles rc ON rc.id = uc.role_id
         LEFT JOIN employees a ON a.id = l.assigned_to 
         LEFT JOIN employees s ON s.id = l.assigned_sales 
         WHERE 1=1";
@@ -577,15 +583,18 @@ unset($_SESSION['flash']);
                 </thead>
                 <tbody>
                     <?php foreach ($leads as $l): 
-                        // Format creator name
+                        // Format creator name (employee, admin user, or admin panel)
                         $creatorName = '';
-                        if ($l['creator_first']) {
-                            $creatorName = $l['creator_first'] . ' ' . $l['creator_last'];
-                            if ($l['creator_code']) {
+                        if (!empty($l['creator_first'])) {
+                            $creatorName = sanitize($l['creator_first'] . ' ' . $l['creator_last']);
+                            if (!empty($l['creator_code'])) {
                                 $creatorName .= ' <small class="text-muted">(' . $l['creator_code'] . ')</small>';
                             }
+                        } elseif (!empty($l['creator_username'])) {
+                            $roleLabel = !empty($l['creator_role_display']) ? $l['creator_role_display'] : (!empty($l['creator_role']) ? ucfirst(str_replace('_', ' ', $l['creator_role'])) : 'Admin');
+                            $creatorName = '<span class="fw-semibold text-primary"><i class="fas fa-user-shield me-1"></i>' . sanitize($l['creator_username']) . '</span> <small class="text-muted">(' . sanitize($roleLabel) . ')</small>';
                         } else {
-                            $creatorName = '<span class="text-muted">Unknown</span>';
+                            $creatorName = '<span class="badge bg-secondary-subtle text-dark border"><i class="fas fa-shield-halved me-1 text-primary"></i>Admin Panel</span>';
                         }
                     ?>
                     <tr class="lead-row" style="cursor:pointer"
@@ -823,6 +832,14 @@ function showLead(l) {
     const money  = l.budget && parseFloat(l.budget) > 0
         ? '₹' + parseFloat(l.budget).toLocaleString('en-IN', {minimumFractionDigits: 2}) : '—';
 
+    let creatorText = 'Admin Panel';
+    if (l.creator_first && l.creator_first.trim()) {
+        creatorText = person(l.creator_first, l.creator_last) + (l.creator_code ? ' (' + l.creator_code + ')' : '');
+    } else if (l.creator_username) {
+        const roleLbl = l.creator_role_display || l.creator_role || 'Admin';
+        creatorText = l.creator_username + ' (' + roleLbl + ')';
+    }
+
     const rows = [
         ['Company',      esc(l.company_name)],
         ['Phone',        esc(val(l.customer_phone) || val(l.mobile) || val(l.phone))],
@@ -834,7 +851,7 @@ function showLead(l) {
         ['Status',       esc(String(val(l.status)).replace(/_/g, ' '))],
         ['Budget',       money],
         ['Follow-up',    esc(String(val(l.follow_up_date)).substring(0, 10))],
-        ['Created by',   esc(person(l.creator_first, l.creator_last))],
+        ['Created by',   esc(creatorText)],
         ['Telecaller',   esc(person(l.assigned_first, l.assigned_last))],
         ['Sales',        esc(person(l.sales_first, l.sales_last))],
         ['Created',      esc(String(val(l.created_at)).substring(0, 16))],

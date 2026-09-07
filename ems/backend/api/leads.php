@@ -119,11 +119,14 @@ function getLeads($db, $auth, $data) {
 
     $sql = "SELECT l.*, 
             cr.id as creator_id, cr.first_name as creator_first, cr.last_name as creator_last, cr.employee_code as creator_code,
+            ucr.username as creator_username, rcr.display_name as creator_role_display, rcr.name as creator_role,
             d.name as creator_department,
             a.id as assigned_to_id, a.first_name as assigned_first, a.last_name as assigned_last, a.employee_code as assigned_code,
             s.id as assigned_sales_id, s.first_name as sales_first, s.last_name as sales_last, s.employee_code as sales_code
             FROM leads l
-            LEFT JOIN employees cr ON cr.id = COALESCE(l.created_by, l.employee_id)
+            LEFT JOIN employees cr ON (cr.id = l.employee_id OR cr.id = l.created_by OR cr.user_id = l.created_by)
+            LEFT JOIN users ucr ON (ucr.id = l.created_by OR ucr.id = cr.user_id)
+            LEFT JOIN roles rcr ON rcr.id = ucr.role_id
             LEFT JOIN departments d ON d.id = cr.department_id
             LEFT JOIN employees a ON a.id = l.assigned_to
             LEFT JOIN employees s ON s.id = l.assigned_sales
@@ -235,7 +238,9 @@ function autoAssignSales($db) {
 
 function createLead($db, $auth, $data) {
     PermissionHelper::checkPermission($db, $auth, 'leads', 'can_create');
-    $eid = $auth['employee_id'];
+    $eid = $auth['employee_id'] ?? null;
+    $uid = $auth['user_id'] ?? null;
+    $createdById = $eid ?: $uid;
 
     $customerName = Validator::sanitize($data['customer_name'] ?? '');
     $phone = Validator::sanitize($data['phone'] ?? $data['customer_phone'] ?? '');
@@ -267,7 +272,7 @@ function createLead($db, $auth, $data) {
         $customerName, $customerName, $phone, $phone, $email, $email,
         $companyName, $city, $source, $source, $campaignName,
         $requirement, $budget, $priority, $notes,
-        $eid, $eid, $assignedTo, $assignedTo ? $auth['user_id'] : null
+        $eid, $createdById, $assignedTo, $assignedTo ? $auth['user_id'] : null
     ]);
 
     $leadId = $db->lastInsertId();
@@ -498,7 +503,9 @@ function updateLeadStatus($db, $auth, $data) {
 
 function importLeadsCSV($db, $auth, $data) {
     PermissionHelper::checkPermission($db, $auth, 'leads', 'can_create');
-    $eid = $auth['employee_id'];
+    $eid = $auth['employee_id'] ?? null;
+    $uid = $auth['user_id'] ?? null;
+    $createdById = $eid ?: $uid;
     $leads = $data['leads'] ?? [];
     $imported = 0; $errors = [];
 
@@ -521,7 +528,7 @@ function importLeadsCSV($db, $auth, $data) {
             $row['budget'] ?? null,
             Validator::sanitize($row['priority'] ?? 'medium'),
             Validator::sanitize($row['notes'] ?? ''),
-            $eid, $eid, $assignedTo, $assignedTo ? $auth['user_id'] : null
+            $eid, $createdById, $assignedTo, $assignedTo ? $auth['user_id'] : null
         ]);
         $imported++;
     }
