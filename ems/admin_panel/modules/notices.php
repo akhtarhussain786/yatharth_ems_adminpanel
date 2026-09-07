@@ -1,6 +1,9 @@
 <?php
 require_once '../includes/config.php';
 if (!isLoggedIn()) redirect('../index.php');
+if (!isset($_GET['action']) || $_GET['action'] !== 'ajax') {
+    requireModuleAccess('notices');
+}
 
 // AJAX: Return notifications JSON for the dropdown
 if (isset($_GET['action']) && $_GET['action'] === 'ajax') {

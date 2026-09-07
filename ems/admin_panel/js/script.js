@@ -120,9 +120,11 @@ function toggleSidebar() {
 /* ============================================================
    Notifications & Real-time Sound/Popup Alerts
    ============================================================ */
-var seenNotifIds = null;
+var lastNotifId = 0;
+var isInitialNotifLoad = true;
 var notifPollTimer = null;
 var audioCtx = null;
+var isNotifSoundEnabled = (localStorage.getItem('admin_notif_sound') !== 'false');
 
 function getAudioContext() {
     if (!audioCtx) {
@@ -139,7 +141,30 @@ $(document).one('click keydown pointerdown', function () {
     getAudioContext();
 });
 
+function toggleNotificationSound(e) {
+    if (e) e.stopPropagation();
+    isNotifSoundEnabled = !isNotifSoundEnabled;
+    localStorage.setItem('admin_notif_sound', isNotifSoundEnabled ? 'true' : 'false');
+    updateSoundToggleUI();
+    if (isNotifSoundEnabled) {
+        playNotificationSound();
+    }
+}
+
+function updateSoundToggleUI() {
+    var icon = $("#notifSoundIcon");
+    var btn = $("#notifSoundToggle");
+    if (isNotifSoundEnabled) {
+        icon.attr('class', 'fas fa-volume-up text-primary');
+        btn.attr('title', 'Notification Sound: ON');
+    } else {
+        icon.attr('class', 'fas fa-volume-mute text-danger');
+        btn.attr('title', 'Notification Sound: OFF');
+    }
+}
+
 function playNotificationSound() {
+    if (!isNotifSoundEnabled) return;
     try {
         var ctx = getAudioContext();
         if (!ctx) return;
@@ -147,7 +172,7 @@ function playNotificationSound() {
         var playChime = function () {
             var now = ctx.currentTime;
             
-            // First note (E5, 659.25Hz)
+            // First harmonic chime note (E5, 659.25Hz)
             var osc1 = ctx.createOscillator();
             var gain1 = ctx.createGain();
             osc1.type = 'sine';
@@ -159,7 +184,7 @@ function playNotificationSound() {
             osc1.start(now);
             osc1.stop(now + 0.18);
 
-            // Second note (B5, 987.77Hz)
+            // Second harmonic chime note (B5, 987.77Hz)
             var osc2 = ctx.createOscillator();
             var gain2 = ctx.createGain();
             osc2.type = 'sine';
@@ -188,41 +213,54 @@ function ensureToastContainer() {
     }
 }
 
+function getNotificationMeta(n) {
+    var type = (n.type || '').toLowerCase();
+    var title = (n.title || '').toLowerCase();
+
+    if (type === 'lead' || title.indexOf('lead') > -1) {
+        return { icon: 'user-plus', color: '#2563eb', bg: '#eff6ff', label: 'View Lead' };
+    } else if (type === 'leave' || title.indexOf('leave') > -1) {
+        return { icon: 'calendar-minus', color: '#ea580c', bg: '#fff7ed', label: 'View Leave' };
+    } else if (type === 'attendance' || title.indexOf('attendance') > -1 || title.indexOf('check-in') > -1 || title.indexOf('late') > -1) {
+        return { icon: 'clock', color: '#059669', bg: '#f0fdf4', label: 'View Attendance' };
+    } else if (type === 'task' || title.indexOf('task') > -1) {
+        return { icon: 'check-double', color: '#7c3aed', bg: '#f5f3ff', label: 'View Task' };
+    } else if (type === 'work' || type === 'work_report' || title.indexOf('work') > -1) {
+        return { icon: 'file-alt', color: '#0284c7', bg: '#f0f9ff', label: 'View Report' };
+    } else {
+        return { icon: 'bell', color: '#64748b', bg: '#f8fafc', label: 'View' };
+    }
+}
+
 function showNotificationToast(n) {
     ensureToastContainer();
 
-    var icon = "bell";
-    var color = "#2563eb";
-    if (n.type === "leave" || (n.title && n.title.indexOf("Leave") > -1)) {
-        icon = "envelope";
-        color = "#ea580c";
-    } else if (n.type === "attendance" || (n.title && n.title.indexOf("Attendance") > -1)) {
-        icon = "calendar-check";
-        color = "#059669";
-    } else if (n.type === "announcement" || (n.title && n.title.indexOf("Notice") > -1)) {
-        icon = "bullhorn";
-        color = "#0284c7";
-    }
-
+    var meta = getNotificationMeta(n);
     var title = n.title || "New Notification";
     var message = n.message || "";
     var timeAgo = getTimeAgo(n.created_at) || "Just now";
     var toastId = "notifToast_" + (n.id || Date.now());
+    var targetUrl = n.target_url || (window.location.origin + '/ems/admin_panel/modules/notifications.php');
+    var actionLabel = n.action_label || meta.label || 'View Details';
 
     if ($("#" + toastId).length > 0) return;
 
-    var toastHtml = '<div id="' + toastId + '" class="admin-notif-toast" data-id="' + (n.id || '') + '">' +
-        '<div class="toast-icon" style="background:' + color + '15; color:' + color + '; border-radius: 50%; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">' +
-        '<i class="fas fa-' + icon + '"></i>' +
+    var toastHtml = '<div id="' + toastId + '" class="admin-notif-toast shadow-lg" data-id="' + (n.id || '') + '">' +
+        '<div class="toast-icon" style="background:' + meta.bg + '; color:' + meta.color + '; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 1rem;">' +
+        '<i class="fas fa-' + meta.icon + '"></i>' +
         '</div>' +
         '<div class="toast-content" style="flex: 1; min-width: 0;">' +
         '<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;">' +
-        '<span style="font-weight: 700; font-size: 0.88rem; color: var(--text-color, #1e293b); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + escapeHtml(title) + '</span>' +
+        '<span style="font-weight: 700; font-size: 0.88rem; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + escapeHtml(title) + '</span>' +
         '<span style="font-size: 0.72rem; color: #94a3b8; margin-left: 8px;">' + escapeHtml(timeAgo) + '</span>' +
         '</div>' +
-        (message ? '<div style="font-size: 0.8rem; color: #475569; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.35;">' + escapeHtml(message) + '</div>' : '') +
+        (message ? '<div style="font-size: 0.8rem; color: #475569; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.35; margin-bottom: 6px;">' + escapeHtml(message) + '</div>' : '') +
+        '<div style="display: flex; align-items: center; justify-content: space-between;">' +
+        (n.employee_name ? '<span class="text-muted" style="font-size:0.72rem;"><i class="fas fa-user me-1"></i>' + escapeHtml(n.employee_name) + '</span>' : '<span></span>') +
+        '<a href="' + targetUrl + '" class="btn btn-xs btn-primary py-1 px-2 text-decoration-none" style="font-size:0.75rem; border-radius:4px;" onclick="markSingleRead(' + (n.id || 0) + ')">' + actionLabel + ' &rarr;</a>' +
         '</div>' +
-        '<button type="button" style="background: none; border: none; color: #94a3b8; font-size: 1.1rem; line-height: 1; cursor: pointer; padding: 0 0 0 8px; margin-top: -2px;" onclick="closeAdminToast(\'' + toastId + '\')">&times;</button>' +
+        '</div>' +
+        '<button type="button" style="background: none; border: none; color: #94a3b8; font-size: 1.2rem; line-height: 1; cursor: pointer; padding: 0 0 0 8px; margin-top: -2px;" onclick="closeAdminToast(\'' + toastId + '\')">&times;</button>' +
         '</div>';
 
     $("#adminToastContainer").append(toastHtml);
@@ -253,8 +291,7 @@ function escapeHtml(text) {
 }
 
 function initNotifications() {
-    $("#notifBtn").off("shown.bs.dropdown").on("shown.bs.dropdown", markNotificationsSeen);
-
+    updateSoundToggleUI();
     fetchAdminNotifications();
 
     if (!notifPollTimer) {
@@ -263,105 +300,97 @@ function initNotifications() {
 }
 
 function fetchAdminNotifications() {
-    var baseUrl = window.location.origin + "/ems/admin_panel/";
-    $.get(baseUrl + "modules/notices.php?action=ajax", function (data) {
+    var ajaxUrl = window.location.origin + "/ems/admin_panel/ajax/notifications.php";
+    $.getJSON(ajaxUrl, { action: "poll", last_id: lastNotifId }, function (res) {
+        if (!res || !res.success) return;
+
+        var unreadCount = res.unread_count || 0;
         var notifBody = $("#notifBody");
-        var unreadCount = 0;
-        var newCount = 0;
-        try {
-            var notices = typeof data === "string" ? JSON.parse(data) : data;
-            var unreadNotices = notices.filter(function (n) { return n.is_read == 0 || n.is_read == "0"; });
+        var notifDot = $("#notifDot");
 
-            var isFirstLoad = (seenNotifIds === null);
-            if (isFirstLoad) {
-                seenNotifIds = {};
-            }
-
-            var newlyArrivedList = [];
-
-            if (unreadNotices.length > 0) {
-                var html = "";
-                unreadNotices.forEach(function (n) {
-                    unreadCount++;
-                    var icon = "bell";
-                    var color = "blue";
-                    if (n.type === "leave" || (n.title && n.title.indexOf("Leave") > -1)) { icon = "envelope"; color = "orange"; }
-                    else if (n.type === "attendance" || (n.title && n.title.indexOf("Attendance") > -1)) { icon = "calendar-check"; color = "green"; }
-                    else if (n.type === "announcement" || (n.title && n.title.indexOf("Notice") > -1)) { icon = "bullhorn"; color = "info"; }
-                    var timeAgo = getTimeAgo(n.created_at);
-                    var isNew = (n.is_new == 1 || n.is_new == "1");
-                    if (isNew) { newCount++; }
-
-                    if (isFirstLoad) {
-                        seenNotifIds[n.id] = true;
-                        if (isNew) {
-                            newlyArrivedList.push(n);
-                        }
-                    } else if (!seenNotifIds[n.id]) {
-                        seenNotifIds[n.id] = true;
-                        newlyArrivedList.push(n);
-                    }
-
-                    html += '<div class="notif-item unread' + (isNew ? ' is-new' : '') + '" data-id="' + n.id + '" style="cursor:pointer">';
-                    html += '<div class="notif-icon" style="background:var(--' + color + '-light);color:var(--' + color + ');"><i class="fas fa-' + icon + '"></i></div>';
-                    html += '<div class="notif-content">';
-                    html += '<div class="title">' + (n.title || "Notification") + (isNew ? ' <span class="notif-new-badge">NEW</span>' : '') + '</div>';
-                    html += '<div class="message">' + (n.message || "") + '</div>';
-                    html += '<div class="time">' + timeAgo + '</div>';
-                    html += '</div></div>';
-                });
-                notifBody.html(html);
-
-                notifBody.find(".notif-item").off("click").on("click", function () {
-                    var id = $(this).data("id");
-                    $.get(baseUrl + "modules/notifications.php?read=ajax&id=" + id, function () {
-                        var item = notifBody.find('.notif-item[data-id="' + id + '"]');
-                        item.fadeOut(300, function () { item.remove(); updateNotifDot(); });
-                    });
-                });
-                $("#notifDot").show().text(unreadCount).toggleClass("has-new", newCount > 0);
-            } else {
-                notifBody.html('<div class="text-center text-muted py-4" style="font-size:0.8rem;"><i class="fas fa-bell-slash me-1"></i> No notifications</div>');
-                $("#notifDot").hide();
-            }
-
-            if (newlyArrivedList.length > 0) {
-                playNotificationSound();
-                newlyArrivedList.slice(0, 3).forEach(function (n) {
-                    showNotificationToast(n);
-                });
-            }
-
-        } catch (e) {
-            notifBody.html('<div class="text-center text-muted py-4" style="font-size:0.8rem;">No notifications</div>');
-            $("#notifDot").hide();
+        // Update Bell Badge
+        if (unreadCount > 0) {
+            notifDot.show().text(unreadCount > 99 ? '99+' : unreadCount);
+        } else {
+            notifDot.hide().text('0');
         }
+
+        // Check for new notifications
+        if (!isInitialNotifLoad && res.new_notifications && res.new_notifications.length > 0) {
+            playNotificationSound();
+            res.new_notifications.slice(0, 3).forEach(function (n) {
+                showNotificationToast(n);
+            });
+        }
+
+        if (res.max_id > lastNotifId) {
+            lastNotifId = res.max_id;
+        }
+
+        isInitialNotifLoad = false;
+
+        // Render Dropdown List
+        var items = res.notifications || [];
+        if (items.length === 0) {
+            notifBody.html('<div class="text-center text-muted py-4" style="font-size:0.8rem;"><i class="fas fa-bell-slash me-1"></i> No notifications yet</div>');
+            return;
+        }
+
+        var unreadItems = items.filter(function(n) { return n.is_read == 0; });
+        var readItems = items.filter(function(n) { return n.is_read != 0; });
+
+        var html = '';
+
+        if (unreadItems.length > 0) {
+            html += '<div class="notif-section-header text-primary"><i class="fas fa-circle me-1" style="font-size:0.5rem;"></i> New Notifications</div>';
+            unreadItems.forEach(function(n) {
+                html += renderNotifDropdownItem(n, true);
+            });
+        }
+
+        if (readItems.length > 0) {
+            if (unreadItems.length > 0) {
+                html += '<div class="notif-section-header text-muted mt-2 border-top pt-2">Earlier</div>';
+            }
+            readItems.slice(0, 8).forEach(function(n) {
+                html += renderNotifDropdownItem(n, false);
+            });
+        }
+
+        notifBody.html(html);
+
     }).fail(function () {
-        $("#notifBody").html('<div class="text-center text-muted py-4" style="font-size:0.8rem;">Could not load notifications</div>');
-        $("#notifDot").hide();
+        // Silent fail on network blip
     });
 }
 
+function renderNotifDropdownItem(n, isUnread) {
+    var meta = getNotificationMeta(n);
+    var timeAgo = getTimeAgo(n.created_at);
+    var targetUrl = n.target_url || '#';
 
-// Opening the bell is what marks this batch as seen: the pulse stops and the
-// NEW badges go, but nothing is marked read — that still needs a click.
-function markNotificationsSeen() {
-    var baseUrl = window.location.origin + "/ems/admin_panel/";
-    $("#notifDot").removeClass("has-new");
-    $("#notifBody .notif-item.is-new").removeClass("is-new").find(".notif-new-badge").remove();
-    $.get(baseUrl + "modules/notices.php?action=notif_seen");
+    return '<a href="' + targetUrl + '" class="notif-item ' + (isUnread ? 'unread' : '') + '" onclick="markSingleRead(' + (n.id || 0) + ')">' +
+        '<div class="notif-icon" style="background:' + meta.bg + '; color:' + meta.color + ';"><i class="fas fa-' + meta.icon + '"></i></div>' +
+        '<div class="notif-content">' +
+        '<div class="title">' + escapeHtml(n.title || 'Notification') + (isUnread ? ' <span class="notif-new-badge">NEW</span>' : '') + '</div>' +
+        '<div class="message">' + escapeHtml(n.message || '') + '</div>' +
+        '<div class="time"><i class="far fa-clock me-1"></i>' + timeAgo + '</div>' +
+        '</div>' +
+        '</a>';
 }
 
-function updateNotifDot() {
-    var count = $("#notifBody .notif-item").length;
-    if (count > 0) { $("#notifDot").show().text(count); }
-    else { $("#notifDot").hide(); }
+function markSingleRead(id) {
+    if (!id) return;
+    $.post(window.location.origin + "/ems/admin_panel/ajax/notifications.php", { action: "mark_read", id: id }, function () {
+        fetchAdminNotifications();
+    });
 }
 
-function markAllRead() {
-    $.post(window.location.origin + "/ems/admin_panel/modules/notices.php", { action: "mark_read" }, function () {
-        $("#notifBody").html('<div class="text-center text-muted py-4" style="font-size:0.8rem;"><i class="fas fa-bell-slash me-1"></i> No notifications</div>');
-        $("#notifDot").hide();
+function markAllRead(e) {
+    if (e) e.stopPropagation();
+    $.post(window.location.origin + "/ems/admin_panel/ajax/notifications.php", { action: "mark_all_read" }, function () {
+        $("#notifDot").hide().text('0');
+        fetchAdminNotifications();
     });
 }
 

@@ -60,22 +60,29 @@
     </div>
     <div class="header-right">
         <div class="dropdown">
-            <button class="header-btn" data-bs-toggle="dropdown" aria-expanded="false" id="notifBtn">
+            <button class="header-btn position-relative" data-bs-toggle="dropdown" aria-expanded="false" id="notifBtn" title="Notifications">
                 <i class="fas fa-bell"></i>
-                <span class="notif-dot" id="notifDot"></span>
+                <span class="badge rounded-pill bg-danger position-absolute top-0 start-100 translate-middle" id="notifDot" style="display:none; font-size:0.65rem; padding:0.25em 0.5em;">0</span>
             </button>
-            <div class="dropdown-menu dropdown-menu-end notif-dropdown" id="notifDropdown">
-                <div class="notif-header">
-                    <h6>Notifications</h6>
-                    <button class="btn btn-xs btn-outline-primary" onclick="markAllRead()">Mark all read</button>
-                </div>
-                <div class="notif-body" id="notifBody">
-                    <div class="text-center text-muted py-4" style="font-size:0.8rem;">
-                        <i class="fas fa-circle-notch fa-spin me-1"></i> Loading...
+            <div class="dropdown-menu dropdown-menu-end notif-dropdown shadow-lg border-0" id="notifDropdown" style="width:360px; max-width:92vw;">
+                <div class="notif-header d-flex justify-content-between align-items-center p-3 border-bottom bg-light">
+                    <h6 class="mb-0 fw-bold"><i class="fas fa-bell me-2 text-primary"></i>Notifications</h6>
+                    <div class="d-flex align-items-center gap-1">
+                        <button type="button" class="btn btn-sm btn-light border py-1 px-2 text-muted" id="notifSoundToggle" onclick="toggleNotificationSound(event)" title="Toggle Sound">
+                            <i class="fas fa-volume-up" id="notifSoundIcon"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary py-1 px-2" onclick="markAllRead(event)">Mark read</button>
                     </div>
                 </div>
-                <div class="notif-footer">
-                    <a href="<?php echo BASE_URL; ?>modules/notifications.php">View all notifications</a>
+                <div class="notif-body" id="notifBody" style="max-height:380px; overflow-y:auto;">
+                    <div class="text-center text-muted py-4" style="font-size:0.8rem;">
+                        <i class="fas fa-circle-notch fa-spin me-1"></i> Loading notifications...
+                    </div>
+                </div>
+                <div class="notif-footer p-2 text-center border-top bg-light">
+                    <a href="<?php echo BASE_URL; ?>modules/notifications.php" class="text-primary small fw-semibold text-decoration-none">
+                        View all notifications <i class="fas fa-arrow-right ms-1"></i>
+                    </a>
                 </div>
             </div>
         </div>

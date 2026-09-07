@@ -1,6 +1,7 @@
 <?php
 require_once '../includes/config.php';
 if (!isLoggedIn()) redirect('../index.php');
+requireModuleAccess('notifications');
 require_once __DIR__ . '/../../backend/helpers/fcm_helper.php';
 
 // Handle Send Push Notification POST

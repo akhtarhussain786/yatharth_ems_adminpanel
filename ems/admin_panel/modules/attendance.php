@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/config.php';
 if (!isLoggedIn()) redirect('../index.php');
+requireModuleAccess('attendance');
 
 $message = '';
 $date = filterDate($_GET['date'] ?? '');

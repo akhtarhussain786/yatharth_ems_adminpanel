@@ -203,6 +203,10 @@ $statusFilter = $_GET['status'] ?? '';
 $creatorFilter = $_GET['creator_id'] ?? '';
 $priorityFilter = $_GET['priority'] ?? '';
 $sourceFilter = $_GET['source'] ?? '';
+$campaignFilter = $_GET['campaign'] ?? '';
+$assigneeFilter = $_GET['assigned_to'] ?? '';
+$dateFrom = $_GET['date_from'] ?? '';
+$dateTo = $_GET['date_to'] ?? '';
 
 // Modified SQL to include creator details
 $sql = "SELECT 
@@ -220,7 +224,7 @@ $sql = "SELECT
             s.last_name as sales_last,
             s.employee_code as sales_code
         FROM leads l 
-        LEFT JOIN employees e ON e.id = l.employee_id 
+        LEFT JOIN employees e ON e.id = COALESCE(l.created_by, l.employee_id) 
         LEFT JOIN employees a ON a.id = l.assigned_to 
         LEFT JOIN employees s ON s.id = l.assigned_sales 
         WHERE 1=1";
@@ -228,12 +232,9 @@ $sql = "SELECT
 $params = [];
 
 if ($search) { 
-    // l.phone was in this list but is not a column on leads, in any schema or
-    // migration, so any search at all failed with an unknown-column error.
-    // customer_phone and mobile are the columns that hold the number.
-    $sql .= " AND (l.customer_name LIKE ? OR l.mobile LIKE ? OR l.email LIKE ? OR l.customer_phone LIKE ?)"; 
+    $sql .= " AND (l.customer_name LIKE ? OR l.mobile LIKE ? OR l.email LIKE ? OR l.customer_phone LIKE ? OR l.company_name LIKE ?)"; 
     $s = "%$search%";
-    $params = array_merge($params, [$s, $s, $s, $s]);
+    $params = array_merge($params, [$s, $s, $s, $s, $s]);
 }
 
 if ($statusFilter) { 
@@ -242,7 +243,8 @@ if ($statusFilter) {
 }
 
 if ($creatorFilter) { 
-    $sql .= " AND l.employee_id = ?"; 
+    $sql .= " AND (l.employee_id = ? OR l.created_by = ?)"; 
+    $params[] = $creatorFilter; 
     $params[] = $creatorFilter; 
 }
 
@@ -255,6 +257,26 @@ if ($sourceFilter) {
     $sql .= " AND (l.source = ? OR l.lead_source = ?)";
     $params[] = $sourceFilter;
     $params[] = $sourceFilter;
+}
+
+if ($campaignFilter) {
+    $sql .= " AND l.campaign_name LIKE ?";
+    $params[] = "%$campaignFilter%";
+}
+
+if ($assigneeFilter) {
+    $sql .= " AND l.assigned_to = ?";
+    $params[] = intval($assigneeFilter);
+}
+
+if ($dateFrom) {
+    $sql .= " AND DATE(l.created_at) >= ?";
+    $params[] = $dateFrom;
+}
+
+if ($dateTo) {
+    $sql .= " AND DATE(l.created_at) <= ?";
+    $params[] = $dateTo;
 }
 
 $sql .= " ORDER BY l.created_at DESC";
@@ -440,58 +462,92 @@ unset($_SESSION['flash']);
 </div>
 
 <!-- Filters -->
-<form method="GET" class="row g-2 mb-3">
-    <div class="col-md-3">
-        <input type="text" name="search" class="form-control form-control-sm" placeholder="Search name, phone, email" value="<?php echo sanitize($search); ?>">
+<form method="GET" class="card card-body p-3 mb-3 bg-light border-0 shadow-sm">
+    <div class="row g-2">
+        <div class="col-md-3">
+            <label class="form-label small fw-semibold text-muted mb-1">Search</label>
+            <input type="text" name="search" class="form-control form-control-sm" placeholder="Name, Phone, Email, Company..." value="<?php echo sanitize($search); ?>">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small fw-semibold text-muted mb-1">Status</label>
+            <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">All Status</option>
+                <option value="new" <?php echo $statusFilter=='new'?'selected':'';?>>New</option>
+                <option value="calling" <?php echo $statusFilter=='calling'?'selected':'';?>>Calling</option>
+                <option value="connected" <?php echo $statusFilter=='connected'?'selected':'';?>>Connected</option>
+                <option value="busy" <?php echo $statusFilter=='busy'?'selected':'';?>>Busy</option>
+                <option value="no_answer" <?php echo $statusFilter=='no_answer'?'selected':'';?>>No Answer</option>
+                <option value="follow_up" <?php echo $statusFilter=='follow_up'?'selected':'';?>>Follow Up</option>
+                <option value="interested" <?php echo $statusFilter=='interested'?'selected':'';?>>Interested</option>
+                <option value="qualified" <?php echo $statusFilter=='qualified'?'selected':'';?>>Qualified</option>
+                <option value="meeting_scheduled" <?php echo $statusFilter=='meeting_scheduled'?'selected':'';?>>Meeting Scheduled</option>
+                <option value="demo_scheduled" <?php echo $statusFilter=='demo_scheduled'?'selected':'';?>>Demo Scheduled</option>
+                <option value="quotation_sent" <?php echo $statusFilter=='quotation_sent'?'selected':'';?>>Quotation Sent</option>
+                <option value="negotiation" <?php echo $statusFilter=='negotiation'?'selected':'';?>>Negotiation</option>
+                <option value="not_interested" <?php echo $statusFilter=='not_interested'?'selected':'';?>>Not Interested</option>
+                <option value="won" <?php echo $statusFilter=='won'?'selected':'';?>>Won</option>
+                <option value="lost" <?php echo $statusFilter=='lost'?'selected':'';?>>Lost</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small fw-semibold text-muted mb-1">Created By</label>
+            <select name="creator_id" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">All Creators</option>
+                <?php foreach ($allEmployees as $emp): ?>
+                <option value="<?php echo $emp['id']; ?>" <?php echo ($creatorFilter ?? '') == $emp['id'] ? 'selected' : ''; ?>>
+                    <?php echo sanitize($emp['first_name'] . ' ' . $emp['last_name']); ?>
+                    (<?php echo $emp['employee_code']; ?>)
+                </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small fw-semibold text-muted mb-1">Assigned User</label>
+            <select name="assigned_to" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">All Assigned</option>
+                <?php foreach ($allEmployees as $emp): ?>
+                <option value="<?php echo $emp['id']; ?>" <?php echo ($assigneeFilter ?? '') == $emp['id'] ? 'selected' : ''; ?>>
+                    <?php echo sanitize($emp['first_name'] . ' ' . $emp['last_name']); ?>
+                </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small fw-semibold text-muted mb-1">Campaign</label>
+            <input type="text" name="campaign" class="form-control form-control-sm" placeholder="Campaign name..." value="<?php echo sanitize($campaignFilter); ?>">
+        </div>
     </div>
-    <div class="col-md-2">
-        <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
-            <option value="">All Status</option>
-            <option value="new" <?php echo $statusFilter=='new'?'selected':'';?>>New</option>
-            <option value="calling" <?php echo $statusFilter=='calling'?'selected':'';?>>Calling</option>
-            <option value="connected" <?php echo $statusFilter=='connected'?'selected':'';?>>Connected</option>
-            <option value="busy" <?php echo $statusFilter=='busy'?'selected':'';?>>Busy</option>
-            <option value="no_answer" <?php echo $statusFilter=='no_answer'?'selected':'';?>>No Answer</option>
-            <option value="follow_up" <?php echo $statusFilter=='follow_up'?'selected':'';?>>Follow Up</option>
-            <option value="interested" <?php echo $statusFilter=='interested'?'selected':'';?>>Interested</option>
-            <option value="qualified" <?php echo $statusFilter=='qualified'?'selected':'';?>>Qualified</option>
-            <option value="not_interested" <?php echo $statusFilter=='not_interested'?'selected':'';?>>Not Interested</option>
-            <option value="won" <?php echo $statusFilter=='won'?'selected':'';?>>Won</option>
-            <option value="lost" <?php echo $statusFilter=='lost'?'selected':'';?>>Lost</option>
-        </select>
-    </div>
-    <div class="col-md-2">
-        <select name="creator_id" class="form-select form-select-sm" onchange="this.form.submit()">
-            <option value="">All Creators</option>
-            <?php foreach ($allEmployees as $emp): ?>
-            <option value="<?php echo $emp['id']; ?>" <?php echo ($creatorFilter ?? '') == $emp['id'] ? 'selected' : ''; ?>>
-                <?php echo sanitize($emp['first_name'] . ' ' . $emp['last_name']); ?>
-                (<?php echo $emp['employee_code']; ?>)
-            </option>
-            <?php endforeach; ?>
-        </select>
-    </div>
-    <div class="col-md-2">
-        <select name="priority" class="form-select form-select-sm" onchange="this.form.submit()">
-            <option value="">All Priorities</option>
-            <?php foreach (['urgent','high','medium','low'] as $pr): ?>
-            <option value="<?php echo $pr; ?>" <?php echo $priorityFilter === $pr ? 'selected' : ''; ?>><?php echo ucfirst($pr); ?></option>
-            <?php endforeach; ?>
-        </select>
-    </div>
-    <div class="col-md-2">
-        <select name="source" class="form-select form-select-sm" onchange="this.form.submit()">
-            <option value="">All Sources</option>
-            <?php foreach (['Facebook','Google','Instagram','Website','WhatsApp','Referral','Manual','Other'] as $src): ?>
-            <option value="<?php echo $src; ?>" <?php echo $sourceFilter === $src ? 'selected' : ''; ?>><?php echo $src; ?></option>
-            <?php endforeach; ?>
-        </select>
-    </div>
-    <div class="col-md-1">
-        <button type="submit" class="btn btn-sm btn-primary w-100"><i class="fas fa-filter"></i></button>
-    </div>
-    <div class="col-md-2">
-        <a href="leads.php" class="btn btn-sm btn-outline-secondary w-100"><i class="fas fa-undo"></i> Reset</a>
+    <div class="row g-2 mt-1 align-items-end">
+        <div class="col-md-2">
+            <label class="form-label small fw-semibold text-muted mb-1">Priority</label>
+            <select name="priority" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">All Priorities</option>
+                <?php foreach (['urgent','high','medium','low'] as $pr): ?>
+                <option value="<?php echo $pr; ?>" <?php echo $priorityFilter === $pr ? 'selected' : ''; ?>><?php echo ucfirst($pr); ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small fw-semibold text-muted mb-1">Source</label>
+            <select name="source" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">All Sources</option>
+                <?php foreach (['Facebook','Google','Instagram','Website','WhatsApp','Referral','Manual','Field Visit','Other'] as $src): ?>
+                <option value="<?php echo $src; ?>" <?php echo $sourceFilter === $src ? 'selected' : ''; ?>><?php echo $src; ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small fw-semibold text-muted mb-1">From Date</label>
+            <input type="date" name="date_from" value="<?php echo sanitize($dateFrom); ?>" class="form-control form-control-sm">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small fw-semibold text-muted mb-1">To Date</label>
+            <input type="date" name="date_to" value="<?php echo sanitize($dateTo); ?>" class="form-control form-control-sm">
+        </div>
+        <div class="col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-primary flex-grow-1"><i class="fas fa-filter me-1"></i> Filter</button>
+            <a href="leads.php" class="btn btn-sm btn-outline-secondary" title="Reset Filters"><i class="fas fa-undo"></i></a>
+        </div>
     </div>
 </form>
 
@@ -604,15 +660,16 @@ unset($_SESSION['flash']);
                         <td>
                             <small><?php echo date('d-m-Y', strtotime($l['created_at'])); ?></small>
                         </td>
-                        <td onclick="event.stopPropagation()">
                             <button class="btn btn-sm btn-outline-secondary" title="View details"
                                     onclick='showLead(<?php echo htmlspecialchars(json_encode($l), ENT_QUOTES); ?>)'>
                                 <i class="fas fa-eye"></i>
                             </button>
+                            <?php if (hasModuleAccess('leads', 'can_edit')): ?>
                             <button class="btn btn-sm btn-outline-primary" title="Edit"
                                     onclick='editLead(<?php echo htmlspecialchars(json_encode($l), ENT_QUOTES); ?>)'>
                                 <i class="fas fa-pen"></i>
                             </button>
+                            <?php endif; ?>
                             <?php if (hasModuleAccess('leads', 'can_delete')): ?>
                             <a href="?delete=<?php echo $l['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Delete this lead?')">
                                 <i class="fas fa-trash"></i>

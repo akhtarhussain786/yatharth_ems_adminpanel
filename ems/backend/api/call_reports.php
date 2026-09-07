@@ -22,19 +22,33 @@ function handleCallReportRequest($action, $param) {
 
 function getCallReports($db, $auth, $data) {
     PermissionHelper::checkPermission($db, $auth, 'call_reports', 'can_view');
+    $role = $auth['role'] ?? '';
+    $authEid = (int)($auth['employee_id'] ?? 0);
+    $isAdminOrHR = in_array($role, ['super_admin', 'admin', 'hr_admin', 'hr', 'hr_executive', 'telecaller_admin', 'sales_admin', 'digital_marketing_admin', 'marketing_admin'], true);
+
     $deptFilter = $data['department_id'] ?? '';
     $empFilter = $data['employee_id'] ?? '';
     $dateFilter = $data['call_date'] ?? '';
+    $leadId = $data['lead_id'] ?? '';
 
-    $sql = "SELECT c.*, e.first_name, e.last_name, e.employee_code, d.name as department_name
+    $sql = "SELECT c.*, e.first_name, e.last_name, e.employee_code, d.name as department_name,
+                   l.customer_name as lead_customer_name
             FROM call_reports c
-            JOIN employees e ON e.id = c.employee_id
+            LEFT JOIN employees e ON e.id = c.employee_id
             LEFT JOIN departments d ON d.id = e.department_id
+            LEFT JOIN leads l ON l.id = c.lead_id
             WHERE 1=1";
     $params = [];
 
-    if ($deptFilter) { $sql .= " AND e.department_id = ?"; $params[] = $deptFilter; }
-    if ($empFilter) { $sql .= " AND c.employee_id = ?"; $params[] = $empFilter; }
+    if ($isAdminOrHR) {
+        if ($deptFilter) { $sql .= " AND e.department_id = ?"; $params[] = $deptFilter; }
+        if ($empFilter) { $sql .= " AND c.employee_id = ?"; $params[] = $empFilter; }
+    } else {
+        $sql .= " AND c.employee_id = ?";
+        $params[] = $authEid;
+    }
+
+    if ($leadId) { $sql .= " AND c.lead_id = ?"; $params[] = intval($leadId); }
     if ($dateFilter) { $sql .= " AND c.call_date = ?"; $params[] = $dateFilter; }
 
     $sql .= " ORDER BY c.created_at DESC";

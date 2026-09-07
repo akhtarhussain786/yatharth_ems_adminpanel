@@ -1004,4 +1004,160 @@ function runSchemaMigrations($db)
             error_log('SchemaGuard leave status normalise: ' . $e->getMessage());
         }
     });
+
+    // Performance indexes for Lead ownership, Working Reports, and Notification Polling
+    SchemaGuard::ensure($db, 'working_reports_lead_indexes_v1', function ($db) {
+        $indexes = [
+            'leads' => ['created_by', 'status', 'created_at', 'campaign_name'],
+            'attendance' => ['attendance_date', 'status', 'late_minutes'],
+            'notifications' => ['user_id', 'is_read', 'created_at']
+        ];
+        foreach ($indexes as $table => $cols) {
+            foreach ($cols as $col) {
+                try {
+                    $db->exec("CREATE INDEX idx_{$table}_{$col} ON {$table} ({$col})");
+                } catch (Throwable $e) {
+                    // Index already exists or table busy
+                }
+            }
+        }
+    });
+
+    // ---------------------------------------------------------------
+    // RBAC: Roles and HR Executive full marketing view permissions
+    // ---------------------------------------------------------------
+    SchemaGuard::ensure($db, 'rbac_roles_permissions_v2', function ($db) {
+        $roles = [
+            ['name' => 'super_admin', 'description' => 'Super Admin - full system access'],
+            ['name' => 'admin', 'description' => 'Admin - general system administration'],
+            ['name' => 'sub_admin', 'description' => 'Sub Admin - operational administration'],
+            ['name' => 'manager', 'description' => 'Manager - team management'],
+            ['name' => 'employee', 'description' => 'Employee - standard employee access'],
+            ['name' => 'hr_admin', 'description' => 'HR Admin - full HR and departmental overview'],
+            ['name' => 'hr', 'description' => 'HR - human resources and operations'],
+            ['name' => 'hr_executive', 'description' => 'HR Executive - HR and full marketing overview'],
+            ['name' => 'digital_marketing_admin', 'description' => 'Digital Marketing Admin - marketing management'],
+            ['name' => 'digital_marketing', 'description' => 'Digital Marketing - marketing campaigns and lead generation'],
+            ['name' => 'marketing_admin', 'description' => 'Marketing Admin - field & digital marketing management'],
+            ['name' => 'marketing_executive', 'description' => 'Marketing Executive - field marketing and lead generation'],
+            ['name' => 'telecaller_admin', 'description' => 'Telecaller Admin - calling and lead follow-up management'],
+            ['name' => 'telecaller', 'description' => 'Telecaller - lead calling and follow-up handling'],
+            ['name' => 'sales_admin', 'description' => 'Sales Admin - sales management'],
+            ['name' => 'sales_manager', 'description' => 'Sales Manager - sales team management'],
+            ['name' => 'sales_executive', 'description' => 'Sales Executive - sales conversions'],
+            ['name' => 'accounts_admin', 'description' => 'Accounts Admin - payroll and financial management'],
+            ['name' => 'accounts', 'description' => 'Accounts - accounting and expenses'],
+            ['name' => 'accounts_executive', 'description' => 'Accounts Executive - accounting operations'],
+            ['name' => 'project_manager', 'description' => 'Project Manager - projects and task coordination'],
+        ];
+
+        $insRole = $db->prepare("INSERT INTO roles (name, description) VALUES (?, ?) ON DUPLICATE KEY UPDATE description = VALUES(description)");
+        foreach ($roles as $r) {
+            $insRole->execute([$r['name'], $r['description']]);
+        }
+
+        // Fetch role IDs map
+        $roleRows = $db->query("SELECT id, name FROM roles")->fetchAll();
+        $roleIdMap = [];
+        foreach ($roleRows as $row) {
+            $roleIdMap[$row['name']] = (int)$row['id'];
+        }
+
+        $grantPerm = $db->prepare("
+            INSERT INTO permissions (role_id, module, can_view, can_create, can_edit, can_delete)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                can_view = VALUES(can_view),
+                can_create = VALUES(can_create),
+                can_edit = VALUES(can_edit),
+                can_delete = VALUES(can_delete)
+        ");
+
+        // Helper to grant permissions for a role
+        $setPerms = function($roleName, $perms) use ($roleIdMap, $grantPerm) {
+            if (!isset($roleIdMap[$roleName])) return;
+            $rid = $roleIdMap[$roleName];
+            foreach ($perms as $module => $flags) {
+                $grantPerm->execute([
+                    $rid,
+                    $module,
+                    $flags[0] ?? 0,
+                    $flags[1] ?? 0,
+                    $flags[2] ?? 0,
+                    $flags[3] ?? 0,
+                ]);
+            }
+        };
+
+        // HR Admin & HR & HR Executive: Full Marketing Data View Access
+        $hrPermissions = [
+            'employees'          => [1, 1, 1, 1],
+            'attendance'         => [1, 1, 1, 0],
+            'leaves'             => [1, 1, 1, 1],
+            'leave_requests'     => [1, 1, 1, 1],
+            'departments'        => [1, 0, 0, 0],
+            'designations'       => [1, 0, 0, 0],
+            'daily_work_reports' => [1, 1, 1, 0],
+            'work_reports'       => [1, 1, 1, 0],
+            'reports'            => [1, 0, 0, 0],
+            'hr_activities'      => [1, 1, 1, 1],
+            'notices'            => [1, 1, 1, 0],
+            'notifications'      => [1, 1, 1, 0],
+            // Marketing Department Full Visibility
+            'leads'              => [1, 0, 0, 0],
+            'marketing'          => [1, 0, 0, 0],
+            'campaigns'          => [1, 0, 0, 0],
+            'call_reports'       => [1, 0, 0, 0],
+            'follow_ups'         => [1, 0, 0, 0],
+            'meetings'           => [1, 0, 0, 0],
+            'documents'          => [1, 1, 1, 0],
+            'downloads'          => [1, 1, 1, 0],
+            'help'               => [1, 1, 1, 0],
+        ];
+
+        $setPerms('hr_admin', $hrPermissions);
+        $setPerms('hr', $hrPermissions);
+        $setPerms('hr_executive', $hrPermissions);
+
+        // Marketing Admin
+        $marketingAdminPermissions = [
+            'leads'              => [1, 1, 1, 1],
+            'marketing'          => [1, 1, 1, 1],
+            'campaigns'          => [1, 1, 1, 1],
+            'daily_work_reports' => [1, 1, 1, 0],
+            'work_reports'       => [1, 1, 1, 0],
+            'reports'            => [1, 0, 0, 0],
+            'attendance'         => [1, 0, 0, 0],
+            'employees'          => [1, 0, 0, 0],
+            'notices'            => [1, 0, 0, 0],
+            'notifications'      => [1, 1, 1, 0],
+            'downloads'          => [1, 0, 0, 0],
+            'help'               => [1, 1, 0, 0],
+        ];
+        $setPerms('digital_marketing_admin', $marketingAdminPermissions);
+        $setPerms('marketing_admin', $marketingAdminPermissions);
+
+        // Marketing Executive
+        $marketingExecPermissions = [
+            'leads'              => [1, 1, 1, 0],
+            'marketing'          => [1, 1, 1, 0],
+            'campaigns'          => [1, 1, 1, 0],
+            'daily_work_reports' => [1, 1, 0, 0],
+            'work_reports'       => [1, 1, 0, 0],
+            'attendance'         => [1, 0, 0, 0],
+            'leaves'             => [1, 1, 0, 0],
+            'leave_requests'     => [1, 1, 0, 0],
+            'travel'             => [1, 1, 0, 0],
+            'expenses'           => [1, 1, 0, 0],
+            'notices'            => [1, 0, 0, 0],
+            'notifications'      => [1, 0, 0, 0],
+            'downloads'          => [1, 0, 0, 0],
+            'help'               => [1, 1, 0, 0],
+        ];
+        $setPerms('digital_marketing', $marketingExecPermissions);
+        $setPerms('marketing_executive', $marketingExecPermissions);
+        $setPerms('marketing', $marketingExecPermissions);
+    });
 }
+
+

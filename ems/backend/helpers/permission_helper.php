@@ -14,13 +14,19 @@ class PermissionHelper {
      * Delete an entry here once the equivalent row exists in `permissions`.
      */
     private static $roleModuleFallback = [
-        'telecaller'       => ['leads', 'call_reports', 'follow_ups', 'telecaller'],
-        'telecaller_admin' => ['leads', 'call_reports', 'follow_ups', 'telecaller'],
-        'sales_executive'  => ['leads', 'follow_ups', 'sales', 'meetings'],
-        'sales_manager'    => ['leads', 'follow_ups', 'sales', 'meetings'],
-        'sales_admin'      => ['leads', 'follow_ups', 'sales', 'meetings'],
-        'digital_marketing'       => ['leads', 'campaigns', 'marketing'],
-        'digital_marketing_admin' => ['leads', 'campaigns', 'marketing'],
+        'telecaller'              => ['leads', 'call_reports', 'follow_ups', 'telecaller', 'daily_work_reports'],
+        'telecaller_admin'        => ['leads', 'call_reports', 'follow_ups', 'telecaller', 'daily_work_reports', 'reports'],
+        'sales_executive'         => ['leads', 'follow_ups', 'sales', 'meetings', 'daily_work_reports'],
+        'sales_manager'           => ['leads', 'follow_ups', 'sales', 'meetings', 'daily_work_reports', 'reports'],
+        'sales_admin'             => ['leads', 'follow_ups', 'sales', 'meetings', 'daily_work_reports', 'reports'],
+        'digital_marketing'       => ['leads', 'campaigns', 'marketing', 'daily_work_reports'],
+        'digital_marketing_admin' => ['leads', 'campaigns', 'marketing', 'daily_work_reports', 'reports'],
+        'marketing'               => ['leads', 'campaigns', 'marketing', 'daily_work_reports'],
+        'marketing_executive'     => ['leads', 'campaigns', 'marketing', 'daily_work_reports'],
+        'marketing_admin'         => ['leads', 'campaigns', 'marketing', 'daily_work_reports', 'reports'],
+        'hr'                      => ['employees', 'attendance', 'leaves', 'leave_requests', 'hr_activities', 'notices', 'notifications', 'daily_work_reports', 'reports', 'leads', 'marketing', 'campaigns', 'call_reports', 'follow_ups'],
+        'hr_executive'            => ['employees', 'attendance', 'leaves', 'leave_requests', 'hr_activities', 'notices', 'notifications', 'daily_work_reports', 'reports', 'leads', 'marketing', 'campaigns', 'call_reports', 'follow_ups'],
+        'hr_admin'                => ['employees', 'attendance', 'leaves', 'leave_requests', 'hr_activities', 'notices', 'notifications', 'daily_work_reports', 'reports', 'leads', 'marketing', 'campaigns', 'call_reports', 'follow_ups'],
     ];
 
     /**

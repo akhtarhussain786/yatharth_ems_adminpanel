@@ -81,6 +81,113 @@ if (isset($_GET['delete_role'])) {
     }
 }
 
+// Handle 1-Click Auto Seed Permissions
+if (isset($_GET['auto_seed_defaults'])) {
+    try {
+        $roleMap = [];
+        foreach ($pdo->query("SELECT id, name FROM roles")->fetchAll() as $r) {
+            $roleMap[$r['name']] = (int)$r['id'];
+        }
+
+        $allMods = [
+            'employees','attendance','departments','designations','leaves','payroll','reports',
+            'settings','daily_work_reports','tasks','leads','campaigns','call_reports','follow_ups',
+            'hr_activities','notices','documents','activity_logs','roles','permissions','users',
+            'marketing','telecaller','sales','travel','expenses','assets','meetings','notifications','downloads','help'
+        ];
+
+        $ins = $pdo->prepare("INSERT INTO permissions (role_id, module, can_view, can_create, can_edit, can_delete) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE can_view=VALUES(can_view), can_create=VALUES(can_create), can_edit=VALUES(can_edit), can_delete=VALUES(can_delete)");
+
+        foreach ($roleMap as $roleName => $rId) {
+            // Delete old permissions
+            $pdo->prepare("DELETE FROM permissions WHERE role_id = ?")->execute([$rId]);
+
+            foreach ($allMods as $mod) {
+                $v = 0; $c = 0; $e = 0; $d = 0;
+
+                // 1. Super Admin
+                if ($roleName === 'super_admin') {
+                    $v = 1; $c = 1; $e = 1; $d = 1;
+                }
+                // 2. Admin
+                elseif ($roleName === 'admin') {
+                    $v = 1;
+                    $c = in_array($mod, ['reports','settings','permissions','activity_logs'], true) ? 0 : 1;
+                    $e = in_array($mod, ['reports','settings','permissions','activity_logs'], true) ? 0 : 1;
+                    $d = in_array($mod, ['reports','settings','permissions','activity_logs','leads'], true) ? 0 : 1;
+                }
+                // 3. HR Admin / Sub Admin
+                elseif ($roleName === 'hr_admin' || $roleName === 'sub_admin') {
+                    if (in_array($mod, ['employees','attendance','leaves','leave_requests','payroll','tasks','travel','expenses','assets','documents','notices','departments','designations','hr_activities'], true)) {
+                        $v = 1; $c = 1; $e = 1; $d = 1;
+                    } elseif (in_array($mod, ['leads','marketing','campaigns','call_reports','follow_ups','reports','daily_work_reports','notifications','help','downloads'], true)) {
+                        $v = 1; $c = ($mod === 'daily_work_reports') ? 1 : 0; $e = ($mod === 'daily_work_reports') ? 1 : 0; $d = 0;
+                    }
+                }
+                // 4. HR / HR Executive
+                elseif ($roleName === 'hr' || $roleName === 'hr_executive') {
+                    if (in_array($mod, ['employees','leaves','leave_requests','payroll','tasks','travel','expenses','assets','hr_activities'], true)) {
+                        $v = 1; $c = 1; $e = 1; $d = 1;
+                    } elseif (in_array($mod, ['attendance','notices','documents','daily_work_reports','notifications','help','downloads'], true)) {
+                        $v = 1; $c = 1; $e = 1; $d = 0;
+                    } elseif (in_array($mod, ['leads','marketing','campaigns','call_reports','follow_ups','reports','departments','designations'], true)) {
+                        $v = 1; $c = 0; $e = 0; $d = 0;
+                    }
+                }
+                // 5. Accounts Admin / Accounts
+                elseif (strpos($roleName, 'accounts') !== false) {
+                    if (in_array($mod, ['payroll','expenses','accounts'], true)) {
+                        $v = 1; $c = 1; $e = 1; $d = ($roleName === 'accounts_admin' ? 1 : 0);
+                    } elseif (in_array($mod, ['employees','attendance','leaves','reports','daily_work_reports','notices','documents'], true)) {
+                        $v = 1; $c = ($mod === 'daily_work_reports' ? 1 : 0); $e = 0; $d = 0;
+                    }
+                }
+                // 6. IT Admin
+                elseif (strpos($roleName, 'it_admin') !== false) {
+                    if (in_array($mod, ['assets','downloads','help','it_team'], true)) {
+                        $v = 1; $c = 1; $e = 1; $d = 1;
+                    } elseif (in_array($mod, ['employees','attendance','notices','documents','daily_work_reports'], true)) {
+                        $v = 1; $c = ($mod === 'daily_work_reports' ? 1 : 0); $e = 0; $d = 0;
+                    }
+                }
+                // 7. Telecaller Admin / Telecaller
+                elseif (strpos($roleName, 'telecaller') !== false) {
+                    if (in_array($mod, ['call_reports','follow_ups'], true)) {
+                        $v = 1; $c = 1; $e = 1; $d = ($roleName === 'telecaller_admin' ? 1 : 0);
+                    } elseif ($mod === 'leads') {
+                        $v = 1; $c = 0; $e = 1; $d = 0;
+                    } elseif (in_array($mod, ['attendance','leaves','daily_work_reports','notices','documents'], true)) {
+                        $v = 1; $c = in_array($mod, ['leaves','daily_work_reports']) ? 1 : 0; $e = 0; $d = 0;
+                    }
+                }
+                // 8. Digital Marketing / Marketing Admin / Marketing Executive
+                elseif (strpos($roleName, 'marketing') !== false || strpos($roleName, 'digital_marketing') !== false) {
+                    if (in_array($mod, ['leads','marketing','campaigns'], true)) {
+                        $v = 1; $c = 1; $e = 1; $d = (strpos($roleName, 'admin') !== false ? 1 : 0);
+                    } elseif (in_array($mod, ['call_reports','follow_ups','reports'], true)) {
+                        $v = 1; $c = 0; $e = 0; $d = 0;
+                    } elseif (in_array($mod, ['attendance','leaves','daily_work_reports','notices','documents'], true)) {
+                        $v = 1; $c = in_array($mod, ['leaves','daily_work_reports']) ? 1 : 0; $e = 0; $d = 0;
+                    }
+                }
+                // 9. Employee / Standard Staff
+                else {
+                    if (in_array($mod, ['attendance','leaves','tasks','daily_work_reports','notices','documents','downloads','help'], true)) {
+                        $v = 1;
+                        $c = in_array($mod, ['leaves','daily_work_reports','help'], true) ? 1 : 0;
+                        $e = 0; $d = 0;
+                    }
+                }
+
+                $ins->execute([$rId, $mod, $v, $c, $e, $d]);
+            }
+        }
+        $message = 'Sabhi roles ke recommended default permissions successfully configure ho gaye hain!';
+    } catch (Exception $e) {
+        $message = 'Error auto configuring permissions: ' . $e->getMessage();
+    }
+}
+
 $roles = $pdo->query("SELECT r.*, (SELECT COUNT(*) FROM users WHERE role_id = r.id) as user_count FROM roles r ORDER BY r.id")->fetchAll();
 
 $allModules = ['employees','attendance','departments','designations','leaves','payroll','reports','settings','daily_work_reports','tasks','leads','campaigns','call_reports','follow_ups','hr_activities','notices','documents','activity_logs','roles','permissions','users','marketing','telecaller','sales','travel','expenses','assets','meetings','notifications'];
@@ -103,9 +210,14 @@ require_once '../includes/header.php';
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="fw-bold"><i class="fas fa-shield-alt me-2"></i>Role Management</h4>
-    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#roleModal">
-        <i class="fas fa-plus me-1"></i>Add Role
-    </button>
+    <div>
+        <a href="?auto_seed_defaults=1" class="btn btn-success me-2" onclick="return confirm('Kya aap sabhi roles ke liye recommended default permissions automatically apply karna chahte hain? Isse sabhi roles ke permissions 1-click me set ho jayenge.');">
+            <i class="fas fa-magic me-1"></i>⚡ Auto-Configure All Permissions (1-Click)
+        </a>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#roleModal">
+            <i class="fas fa-plus me-1"></i>Add Role
+        </button>
+    </div>
 </div>
 
 <?php if ($message): ?>

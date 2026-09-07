@@ -22,22 +22,36 @@ function handleFollowUpRequest($action, $param) {
 
 function getFollowUps($db, $auth, $data) {
     PermissionHelper::checkPermission($db, $auth, 'follow_ups', 'can_view');
+    $role = $auth['role'] ?? '';
+    $authEid = (int)($auth['employee_id'] ?? 0);
+    $isAdminOrHR = in_array($role, ['super_admin', 'admin', 'hr_admin', 'hr', 'hr_executive', 'telecaller_admin', 'sales_admin', 'digital_marketing_admin', 'marketing_admin'], true);
+
     $deptFilter = $data['department_id'] ?? '';
     $empFilter = $data['employee_id'] ?? '';
     $statusFilter = $data['status'] ?? '';
+    $leadId = $data['lead_id'] ?? '';
 
-    $sql = "SELECT f.*, e.first_name, e.last_name, e.employee_code, d.name as department_name
+    $sql = "SELECT f.*, e.first_name, e.last_name, e.employee_code, d.name as department_name,
+                   l.customer_name as lead_customer_name, l.status as lead_status
             FROM follow_ups f
-            JOIN employees e ON e.id = f.employee_id
+            LEFT JOIN employees e ON e.id = f.employee_id
             LEFT JOIN departments d ON d.id = e.department_id
+            LEFT JOIN leads l ON l.id = f.lead_id
             WHERE 1=1";
     $params = [];
 
-    if ($deptFilter) { $sql .= " AND e.department_id = ?"; $params[] = $deptFilter; }
-    if ($empFilter) { $sql .= " AND f.employee_id = ?"; $params[] = $empFilter; }
+    if ($isAdminOrHR) {
+        if ($deptFilter) { $sql .= " AND e.department_id = ?"; $params[] = $deptFilter; }
+        if ($empFilter) { $sql .= " AND f.employee_id = ?"; $params[] = $empFilter; }
+    } else {
+        $sql .= " AND f.employee_id = ?";
+        $params[] = $authEid;
+    }
+
+    if ($leadId) { $sql .= " AND f.lead_id = ?"; $params[] = intval($leadId); }
     if ($statusFilter) { $sql .= " AND f.status = ?"; $params[] = $statusFilter; }
 
-    $sql .= " ORDER BY f.follow_up_date ASC";
+    $sql .= " ORDER BY f.follow_up_date ASC, f.follow_up_time ASC";
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
     return ['success' => true, 'data' => $stmt->fetchAll()];

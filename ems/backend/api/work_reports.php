@@ -24,6 +24,10 @@ function handleWorkReportRequest($action, $param) {
 
 function getWorkReports($db, $auth, $data) {
     PermissionHelper::checkPermission($db, $auth, 'daily_work_reports', 'can_view');
+    $role = $auth['role'] ?? '';
+    $authEid = (int)($auth['employee_id'] ?? 0);
+    $isAdminOrHR = in_array($role, ['super_admin', 'admin', 'hr_admin', 'hr', 'hr_executive', 'manager', 'digital_marketing_admin', 'marketing_admin', 'telecaller_admin', 'sales_admin'], true);
+
     $deptFilter = $data['department_id'] ?? '';
     $empFilter = $data['employee_id'] ?? '';
     $dateFilter = $data['report_date'] ?? '';
@@ -36,12 +40,18 @@ function getWorkReports($db, $auth, $data) {
             WHERE 1=1";
     $params = [];
 
-    if ($deptFilter) { $sql .= " AND e.department_id = ?"; $params[] = $deptFilter; }
-    if ($empFilter) { $sql .= " AND w.employee_id = ?"; $params[] = $empFilter; }
+    if ($isAdminOrHR) {
+        if ($deptFilter) { $sql .= " AND e.department_id = ?"; $params[] = $deptFilter; }
+        if ($empFilter) { $sql .= " AND w.employee_id = ?"; $params[] = $empFilter; }
+    } else {
+        $sql .= " AND w.employee_id = ?";
+        $params[] = $authEid;
+    }
+
     if ($dateFilter) { $sql .= " AND w.report_date = ?"; $params[] = $dateFilter; }
     if ($statusFilter) { $sql .= " AND w.status = ?"; $params[] = $statusFilter; }
 
-    $sql .= " ORDER BY w.created_at DESC";
+    $sql .= " ORDER BY w.report_date DESC, w.created_at DESC";
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
     return ['success' => true, 'data' => $stmt->fetchAll()];

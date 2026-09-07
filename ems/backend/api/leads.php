@@ -33,22 +33,73 @@ function handleLeadRequest($action, $param) {
 }
 
 /**
+ * Checks whether the current user is authorized to perform an operation on a specific lead.
+ *
+ * Admins have global access.
+ * Marketing, telecaller, and regular employees can only access leads they created,
+ * or that are explicitly assigned to them.
+ */
+function canAccessLead($db, $auth, $leadId, $permission = 'view') {
+    $role = $auth['role'] ?? '';
+    $eid = intval($auth['employee_id'] ?? 0);
+
+    // Super Admin and Admin have unrestricted access for all operations
+    if (in_array($role, ['super_admin', 'admin'], true)) {
+        return true;
+    }
+
+    // HR Executive, HR Admin, Marketing Admin, Telecaller Admin, Sales Admin have unrestricted VIEW access
+    if (in_array($role, ['hr_admin', 'hr', 'hr_executive', 'digital_marketing_admin', 'marketing_admin', 'telecaller_admin', 'sales_admin'], true)) {
+        if ($permission === 'view') {
+            return true;
+        }
+        if ($permission === 'edit' && in_array($role, ['digital_marketing_admin', 'marketing_admin', 'telecaller_admin', 'sales_admin', 'hr_admin'], true)) {
+            return true;
+        }
+    }
+
+    if (!$leadId || !$eid) return false;
+
+    $stmt = $db->prepare("SELECT id, employee_id, created_by, assigned_to, assigned_sales, status FROM leads WHERE id = ? LIMIT 1");
+    $stmt->execute([$leadId]);
+    $lead = $stmt->fetch();
+    if (!$lead) return false;
+
+    $creatorEid = intval($lead['created_by'] ?? $lead['employee_id'] ?? 0);
+    $assigneeEid = intval($lead['assigned_to'] ?? 0);
+    $salesEid = intval($lead['assigned_sales'] ?? 0);
+
+    // Deletion: restricted to original creator or admin
+    if ($permission === 'delete') {
+        return ($creatorEid === $eid || in_array($role, ['digital_marketing_admin', 'marketing_admin'], true));
+    }
+
+    // View / Edit / Status: must be creator or assigned handler
+    if ($creatorEid === $eid || $assigneeEid === $eid || $salesEid === $eid) {
+        return true;
+    }
+
+    // Sales role may access unassigned qualified leads pool
+    if (strpos($role, 'sales') !== false && empty($salesEid) && in_array($lead['status'], ['qualified','meeting_scheduled','demo_scheduled','quotation_sent','negotiation'], true)) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
  * Who may see a lead.
  *
- * Admins see everything. Everyone else sees a lead they created, a lead
- * assigned to them for calling, or a lead escalated to them in sales. The old
- * code keyed this off a hand-maintained list of role names, so anyone whose
- * role was not literally 'telecaller_admin' or 'sales_admin' — including the
- * 'telecaller' and 'sales_executive' roles that autoAssign* actively hands
- * leads to — silently fell through to "only leads I created myself" and never
- * saw their own assignments.
+ * Admins, HR Executives, HR Admins, and Marketing Admins see all organization leads.
+ * Marketing employees see ONLY their own created or assigned leads.
+ * Telecallers see assigned leads.
+ * Sales see assigned and qualified pool leads.
  *
- * Returns null when the caller may see everything.
+ * Returns null when the caller may see all leads.
  */
 function leadVisibilityScope($role, $employeeId) {
-    if (in_array($role, ['super_admin', 'admin', 'telecaller_admin', 'sales_admin', 'digital_marketing_admin', 'hr_admin'], true)) return null;
+    if (in_array($role, ['super_admin', 'admin', 'hr_admin', 'hr', 'hr_executive', 'digital_marketing_admin', 'marketing_admin', 'telecaller_admin', 'sales_admin'], true)) return null;
 
-    // Sales keeps its extra reach over the unclaimed qualified pool.
     $sql = '(l.employee_id = ? OR l.created_by = ? OR l.assigned_to = ? OR l.assigned_sales = ?';
     $params = [$employeeId, $employeeId, $employeeId, $employeeId];
 
@@ -66,26 +117,98 @@ function getLeads($db, $auth, $data) {
     $role = $auth['role'];
     $eid = $auth['employee_id'];
 
-    $sql = "SELECT l.*, cr.first_name as creator_first, cr.last_name as creator_last, 
-            a.first_name as assigned_first, a.last_name as assigned_last,
-            s.first_name as sales_first, s.last_name as sales_last
+    $sql = "SELECT l.*, 
+            cr.id as creator_id, cr.first_name as creator_first, cr.last_name as creator_last, cr.employee_code as creator_code,
+            d.name as creator_department,
+            a.id as assigned_to_id, a.first_name as assigned_first, a.last_name as assigned_last, a.employee_code as assigned_code,
+            s.id as assigned_sales_id, s.first_name as sales_first, s.last_name as sales_last, s.employee_code as sales_code
             FROM leads l
-            LEFT JOIN employees cr ON cr.id = l.employee_id
+            LEFT JOIN employees cr ON cr.id = COALESCE(l.created_by, l.employee_id)
+            LEFT JOIN departments d ON d.id = cr.department_id
             LEFT JOIN employees a ON a.id = l.assigned_to
             LEFT JOIN employees s ON s.id = l.assigned_sales
             WHERE 1=1";
     $params = [];
 
-    if (isset($data['status']) && $data['status'] !== '') { $sql .= " AND l.status = ?"; $params[] = $data['status']; }
-    if (isset($data['source']) && $data['source'] !== '') { $sql .= " AND (l.source = ? OR l.lead_source = ?)"; $params[] = $data['source']; $params[] = $data['source']; }
-    if (isset($data['date']) && $data['date'] !== '') { $sql .= " AND DATE(l.created_at) = ?"; $params[] = $data['date']; }
-    if (isset($data['from_date']) && $data['from_date'] !== '') { $sql .= " AND DATE(l.created_at) >= ?"; $params[] = $data['from_date']; }
-    if (isset($data['to_date']) && $data['to_date'] !== '') { $sql .= " AND DATE(l.created_at) <= ?"; $params[] = $data['to_date']; }
+    // Status filter
+    if (isset($data['status']) && $data['status'] !== '') {
+        $sql .= " AND l.status = ?";
+        $params[] = $data['status'];
+    }
 
+    // Source filter
+    if (isset($data['source']) && $data['source'] !== '') {
+        $sql .= " AND (l.source = ? OR l.lead_source = ?)";
+        $params[] = $data['source'];
+        $params[] = $data['source'];
+    }
+
+    // Priority filter
+    if (isset($data['priority']) && $data['priority'] !== '') {
+        $sql .= " AND l.priority = ?";
+        $params[] = $data['priority'];
+    }
+
+    // Campaign filter
+    if (isset($data['campaign']) && $data['campaign'] !== '') {
+        $sql .= " AND l.campaign_name = ?";
+        $params[] = $data['campaign'];
+    } elseif (isset($data['campaign_name']) && $data['campaign_name'] !== '') {
+        $sql .= " AND l.campaign_name = ?";
+        $params[] = $data['campaign_name'];
+    }
+
+    // Assigned User filter
+    if (isset($data['assigned_to']) && $data['assigned_to'] !== '') {
+        $sql .= " AND l.assigned_to = ?";
+        $params[] = intval($data['assigned_to']);
+    }
+
+    // Date filters
+    if (isset($data['date']) && $data['date'] !== '') {
+        $sql .= " AND DATE(l.created_at) = ?";
+        $params[] = $data['date'];
+    }
+    if (isset($data['from_date']) && $data['from_date'] !== '') {
+        $sql .= " AND DATE(l.created_at) >= ?";
+        $params[] = $data['from_date'];
+    } elseif (isset($data['date_from']) && $data['date_from'] !== '') {
+        $sql .= " AND DATE(l.created_at) >= ?";
+        $params[] = $data['date_from'];
+    }
+    if (isset($data['to_date']) && $data['to_date'] !== '') {
+        $sql .= " AND DATE(l.created_at) <= ?";
+        $params[] = $data['to_date'];
+    } elseif (isset($data['date_to']) && $data['date_to'] !== '') {
+        $sql .= " AND DATE(l.created_at) <= ?";
+        $params[] = $data['date_to'];
+    }
+
+    // Search query
+    if (isset($data['search']) && trim($data['search']) !== '') {
+        $search = '%' . trim($data['search']) . '%';
+        $sql .= " AND (l.customer_name LIKE ? OR l.customer_phone LIKE ? OR l.mobile LIKE ? OR l.email LIKE ? OR l.company_name LIKE ? OR l.city LIKE ?)";
+        $params = array_merge($params, [$search, $search, $search, $search, $search, $search]);
+    }
+
+    // Scoping check: Admins can filter by specific employee, non-admins are strictly locked to their own leads
     $scope = leadVisibilityScope($role, $eid);
     if ($scope) {
         $sql .= ' AND ' . $scope['sql'];
         $params = array_merge($params, $scope['params']);
+    } else {
+        // Admin optional creator/employee filter
+        if (isset($data['employee_id']) && $data['employee_id'] !== '') {
+            $empFilter = intval($data['employee_id']);
+            $sql .= " AND (l.employee_id = ? OR l.created_by = ?)";
+            $params[] = $empFilter;
+            $params[] = $empFilter;
+        } elseif (isset($data['creator_id']) && $data['creator_id'] !== '') {
+            $creatorFilter = intval($data['creator_id']);
+            $sql .= " AND (l.employee_id = ? OR l.created_by = ?)";
+            $params[] = $creatorFilter;
+            $params[] = $creatorFilter;
+        }
     }
 
     $sql .= " ORDER BY l.created_at DESC";
@@ -129,7 +252,7 @@ function createLead($db, $auth, $data) {
     if (!$customerName) return ['success' => false, 'message' => 'Customer name is required'];
     if (!$phone) return ['success' => false, 'message' => 'Phone is required'];
 
-    $allowedSources = ['Facebook','Google','Instagram','Website','WhatsApp','Referral','Manual','Other'];
+    $allowedSources = ['Facebook','Google','Instagram','Website','WhatsApp','Referral','Manual','Field Visit','Other'];
     if ($source && !in_array($source, $allowedSources)) $source = 'Other';
 
     $assignedTo = null;
@@ -149,17 +272,34 @@ function createLead($db, $auth, $data) {
 
     $leadId = $db->lastInsertId();
 
-    // Notify assigned telecaller
-    if ($assignedTo) {
+    // Fetch creator info for notification
+    $creatorName = 'Employee';
+    $deptName = 'Marketing';
+    if ($eid) {
+        $cStmt = $db->prepare("SELECT e.first_name, e.last_name, d.name as dept_name FROM employees e LEFT JOIN departments d ON d.id = e.department_id WHERE e.id = ?");
+        $cStmt->execute([$eid]);
+        $cRow = $cStmt->fetch();
+        if ($cRow) {
+            $creatorName = trim(($cRow['first_name'] ?? '') . ' ' . ($cRow['last_name'] ?? ''));
+            $deptName = $cRow['dept_name'] ?? 'Marketing';
+        }
+    }
+
+    // 1. Notify assigned telecaller (if assigned and not self)
+    if ($assignedTo && $assignedTo !== $eid) {
         $stmt = $db->prepare("INSERT INTO notifications (user_id, title, message, type, link) VALUES ((SELECT user_id FROM employees WHERE id = ?), 'New Lead Assigned', CONCAT('Lead: ', ?, ' assigned to you'), 'lead', CONCAT('/leads/', ?))");
         $stmt->execute([$assignedTo, $customerName, $leadId]);
     }
 
-    // Notify all super_admin/admin roles about new lead
-    $adminUsers = $db->query("SELECT id FROM users WHERE role_id IN (SELECT id FROM roles WHERE name IN ('super_admin','admin')) AND status = 1")->fetchAll();
-    $notifStmt = $db->prepare("INSERT INTO notifications (user_id, title, message, type, link, created_at) VALUES (?, 'New Lead Created', CONCAT('New lead from ', ?, ': ', ?), 'lead', CONCAT('/leads/', ?), NOW())");
-    foreach ($adminUsers as $au) {
-        $notifStmt->execute([$au['id'], $source ?: 'Unknown', $customerName, $leadId]);
+    // 2. Notify all super_admin / admin roles about new lead creation
+    try {
+        $adminUsers = $db->query("SELECT id FROM users WHERE role_id IN (SELECT id FROM roles WHERE name IN ('super_admin','admin')) AND status = 1")->fetchAll();
+        $notifStmt = $db->prepare("INSERT INTO notifications (user_id, title, message, type, link, created_at) VALUES (?, 'New Lead Created', CONCAT(?, ' created by ', ?, ' (', ?, ')'), 'lead', CONCAT('/leads/', ?), NOW())");
+        foreach ($adminUsers as $au) {
+            $notifStmt->execute([$au['id'], $customerName, $creatorName, $deptName, $leadId]);
+        }
+    } catch (Throwable $e) {
+        error_log('Admin lead creation notification error: ' . $e->getMessage());
     }
 
     return ['success' => true, 'message' => 'Lead created', 'id' => $leadId, 'assigned_to' => $assignedTo];
@@ -167,8 +307,14 @@ function createLead($db, $auth, $data) {
 
 function updateLead($db, $auth, $data) {
     PermissionHelper::checkPermission($db, $auth, 'leads', 'can_edit');
-    $id = intval($data['id'] ?? 0);
+    $id = intval($data['id'] ?? $data['lead_id'] ?? 0);
     if (!$id) return ['success' => false, 'message' => 'Lead ID required'];
+
+    // Strict ownership & permission check
+    if (!canAccessLead($db, $auth, $id, 'edit')) {
+        http_response_code(403);
+        return ['success' => false, 'message' => 'Access denied: You do not have permission to edit this lead'];
+    }
 
     $fields = ['customer_name','customer_phone','mobile','email','customer_email','company_name','city','source','lead_source','campaign_name','requirement','budget','priority','notes','status','follow_up_date'];
     $updates = []; $params = [];
@@ -180,7 +326,8 @@ function updateLead($db, $auth, $data) {
         }
     }
 
-    if (isset($data['assigned_to'])) {
+    // Only admins or managers may reassign
+    if (isset($data['assigned_to']) && in_array($auth['role'], ['super_admin', 'admin', 'telecaller_admin', 'sales_admin'], true)) {
         $updates[] = "assigned_to=?";
         $params[] = intval($data['assigned_to']) ?: null;
         $updates[] = "assigned_by=?";
@@ -197,7 +344,15 @@ function updateLead($db, $auth, $data) {
 
 function deleteLead($db, $auth, $data) {
     PermissionHelper::checkPermission($db, $auth, 'leads', 'can_delete');
-    $id = intval($data['id'] ?? 0);
+    $id = intval($data['id'] ?? $data['lead_id'] ?? 0);
+    if (!$id) return ['success' => false, 'message' => 'Lead ID required'];
+
+    // Strict ownership check (only creator or admin can delete)
+    if (!canAccessLead($db, $auth, $id, 'delete')) {
+        http_response_code(403);
+        return ['success' => false, 'message' => 'Access denied: You do not have permission to delete this lead'];
+    }
+
     $stmt = $db->prepare("DELETE FROM leads WHERE id=?");
     $stmt->execute([$id]);
     return ['success' => true, 'message' => 'Lead deleted'];
@@ -208,11 +363,12 @@ function searchLeads($db, $auth, $data) {
     $eid = $auth['employee_id'];
     $role = $auth['role'];
 
-    // Four LIKE placeholders need four bindings; the old code supplied three,
-    // so every search failed with an "invalid parameter number" PDO error.
     $like = "%$query%";
-    $sql = "SELECT l.*, cr.first_name as creator_first, cr.last_name as creator_last FROM leads l LEFT JOIN employees cr ON cr.id = l.employee_id WHERE (l.customer_name LIKE ? OR l.customer_phone LIKE ? OR l.mobile LIKE ? OR l.email LIKE ?)";
-    $params = [$like, $like, $like, $like];
+    $sql = "SELECT l.*, cr.first_name as creator_first, cr.last_name as creator_last 
+            FROM leads l 
+            LEFT JOIN employees cr ON cr.id = COALESCE(l.created_by, l.employee_id) 
+            WHERE (l.customer_name LIKE ? OR l.customer_phone LIKE ? OR l.mobile LIKE ? OR l.email LIKE ? OR l.company_name LIKE ?)";
+    $params = [$like, $like, $like, $like, $like];
 
     $scope = leadVisibilityScope($role, $eid);
     if ($scope) {
@@ -231,20 +387,19 @@ function getLeadHistory($db, $auth, $data) {
     $id = intval($data['lead_id'] ?? $data['id'] ?? 0);
     if (!$id) return ['success' => false, 'message' => 'Lead ID required'];
 
-    $sql = "SELECT l.*, cr.first_name as creator_first, cr.last_name as creator_last,
+    if (!canAccessLead($db, $auth, $id, 'view')) {
+        http_response_code(403);
+        return ['success' => false, 'message' => 'Access denied: You do not have permission to view this lead'];
+    }
+
+    $sql = "SELECT l.*, 
+            cr.first_name as creator_first, cr.last_name as creator_last,
             a.first_name as assigned_first, a.last_name as assigned_last
             FROM leads l
-            LEFT JOIN employees cr ON cr.id = l.employee_id
+            LEFT JOIN employees cr ON cr.id = COALESCE(l.created_by, l.employee_id)
             LEFT JOIN employees a ON a.id = l.assigned_to
             WHERE l.id = ?";
     $params = [$id];
-
-    // Same rule as the list, so a lead cannot be read by id alone.
-    $scope = leadVisibilityScope($auth['role'], $auth['employee_id']);
-    if ($scope) {
-        $sql .= ' AND ' . $scope['sql'];
-        $params = array_merge($params, $scope['params']);
-    }
 
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
@@ -262,6 +417,13 @@ function getLeadHistory($db, $auth, $data) {
 
 function assignLead($db, $auth, $data) {
     PermissionHelper::checkPermission($db, $auth, 'leads', 'can_edit');
+    
+    // Assigning requires admin or telecaller manager role
+    if (!in_array($auth['role'], ['super_admin', 'admin', 'telecaller_admin', 'sales_admin'], true)) {
+        http_response_code(403);
+        return ['success' => false, 'message' => 'Access denied: Only managers can assign leads'];
+    }
+
     $leadId = intval($data['lead_id'] ?? 0);
     $telecallerId = intval($data['telecaller_id'] ?? 0);
     if (!$leadId || !$telecallerId) return ['success' => false, 'message' => 'Lead ID and Telecaller ID required'];
@@ -277,6 +439,11 @@ function assignLead($db, $auth, $data) {
 function assignToSales($db, $auth, $data) {
     $leadId = intval($data['lead_id'] ?? 0);
     if (!$leadId) return ['success' => false, 'message' => 'Lead ID required'];
+
+    if (!canAccessLead($db, $auth, $leadId, 'edit')) {
+        http_response_code(403);
+        return ['success' => false, 'message' => 'Access denied: You do not have permission on this lead'];
+    }
 
     $salesId = null;
     if (isset($data['sales_id']) && $data['sales_id']) {
@@ -300,7 +467,15 @@ function updateLeadStatus($db, $auth, $data) {
     $status = Validator::sanitize($data['status'] ?? '');
     $notes = Validator::sanitize($data['notes'] ?? '');
 
-    $allowed = ['new','calling','connected','busy','no_answer','follow_up','interested','qualified','not_interested','wrong_number','duplicate','lost','won','closed'];
+    if (!$id) return ['success' => false, 'message' => 'Lead ID required'];
+
+    // Strict ownership & permission check
+    if (!canAccessLead($db, $auth, $id, 'edit')) {
+        http_response_code(403);
+        return ['success' => false, 'message' => 'Access denied: You do not have permission to update this lead status'];
+    }
+
+    $allowed = ['new','contacted','calling','connected','busy','no_answer','follow_up','interested','qualified','proposal','meeting_scheduled','demo_scheduled','quotation_sent','negotiation','not_interested','wrong_number','duplicate','lost','won','closed'];
     if (!in_array($status, $allowed)) return ['success' => false, 'message' => 'Invalid status'];
 
     $noteLine = $notes ? '[' . date('Y-m-d H:i') . '] ' . $notes : '';
@@ -346,7 +521,7 @@ function importLeadsCSV($db, $auth, $data) {
             $row['budget'] ?? null,
             Validator::sanitize($row['priority'] ?? 'medium'),
             Validator::sanitize($row['notes'] ?? ''),
-        $eid, $eid, $assignedTo, $assignedTo ? $auth['user_id'] : null
+            $eid, $eid, $assignedTo, $assignedTo ? $auth['user_id'] : null
         ]);
         $imported++;
     }

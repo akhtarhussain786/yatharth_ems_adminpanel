@@ -1,6 +1,7 @@
 <?php
 require_once '../includes/config.php';
 if (!isLoggedIn()) redirect('../index.php');
+requireModuleAccess('marketing');
 
 $message = '';
 

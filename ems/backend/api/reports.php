@@ -6,19 +6,19 @@ function handleReportRequest($action, $param) {
 
     switch ($action) {
         case 'monthly':
-            AuthMiddleware::checkRole(['super_admin', 'hr', 'hr_admin']);
+            PermissionHelper::checkPermission($db, $auth, 'attendance', 'can_view');
             return monthlyReport($db, $param);
         case 'employee':
-            AuthMiddleware::checkRole(['super_admin', 'hr', 'hr_admin']);
+            PermissionHelper::checkPermission($db, $auth, 'attendance', 'can_view');
             return employeeReport($db, $param);
         case 'late':
-            AuthMiddleware::checkRole(['super_admin', 'hr', 'hr_admin']);
+            PermissionHelper::checkPermission($db, $auth, 'attendance', 'can_view');
             return lateReport($db);
         case 'absent':
-            AuthMiddleware::checkRole(['super_admin', 'hr', 'hr_admin']);
+            PermissionHelper::checkPermission($db, $auth, 'attendance', 'can_view');
             return absentReport($db);
         case 'salary':
-            AuthMiddleware::checkRole(['super_admin', 'hr', 'hr_admin', 'accounts_admin']);
+            PermissionHelper::checkPermission($db, $auth, 'payroll', 'can_view');
             return salaryReport($db, $param);
         case 'work':
             PermissionHelper::checkPermission($db, $auth, 'daily_work_reports', 'can_view');
@@ -132,9 +132,16 @@ function leadReport($db, $data) {
     $start = $data['start_date'] ?? date('Y-m-01');
     $end = $data['end_date'] ?? date('Y-m-t');
 
-    $sql = "SELECT l.*, e.first_name, e.last_name, e.employee_code, d.name as department_name FROM leads l JOIN employees e ON e.id = l.employee_id LEFT JOIN departments d ON d.id = e.department_id WHERE DATE(l.created_at) BETWEEN ? AND ?";
+    $sql = "SELECT l.*, 
+                   cr.first_name, cr.last_name, cr.employee_code, d.name as department_name,
+                   a.first_name as assigned_first, a.last_name as assigned_last
+            FROM leads l 
+            LEFT JOIN employees cr ON cr.id = COALESCE(l.created_by, l.employee_id) 
+            LEFT JOIN departments d ON d.id = cr.department_id 
+            LEFT JOIN employees a ON a.id = l.assigned_to
+            WHERE DATE(l.created_at) BETWEEN ? AND ?";
     $params = [$start, $end];
-    if ($emp) { $sql .= " AND l.employee_id = ?"; $params[] = $emp; }
+    if ($emp) { $sql .= " AND (l.employee_id = ? OR l.created_by = ?)"; $params[] = $emp; $params[] = $emp; }
     if ($status) { $sql .= " AND l.status = ?"; $params[] = $status; }
     $sql .= " ORDER BY l.created_at DESC";
     $stmt = $db->prepare($sql);
@@ -175,7 +182,7 @@ function exportReportData($db, $auth, $data) {
     $employeeId = $data['employee_id'] ?? '';
     $role = $auth['role'];
     $authEid = $auth['employee_id'];
-    $isAdmin = in_array($role, ['super_admin', 'admin', 'hr_admin', 'sales_admin', 'telecaller_admin', 'digital_marketing_admin', 'accounts_admin'], true);
+    $isAdmin = in_array($role, ['super_admin', 'admin', 'hr_admin', 'hr', 'hr_executive', 'sales_admin', 'telecaller_admin', 'digital_marketing_admin', 'marketing_admin', 'accounts_admin'], true);
 
     $headers = [];
     $rows = [];
@@ -199,7 +206,11 @@ function exportReportData($db, $auth, $data) {
                     WHERE DATE(l.created_at) BETWEEN ? AND ?";
             $params = [$startDate, $endDate];
             if ($status !== '') { $sql .= " AND l.status = ?"; $params[] = $status; }
-            if (!$isAdmin) {
+            if ($employeeId !== '' && $isAdmin) {
+                $sql .= " AND (l.employee_id = ? OR l.created_by = ?)";
+                $params[] = intval($employeeId);
+                $params[] = intval($employeeId);
+            } elseif (!$isAdmin) {
                 $sql .= " AND (l.employee_id = ? OR l.created_by = ? OR l.assigned_to = ? OR l.assigned_sales = ?)";
                 $params[] = $authEid; $params[] = $authEid; $params[] = $authEid; $params[] = $authEid;
             }

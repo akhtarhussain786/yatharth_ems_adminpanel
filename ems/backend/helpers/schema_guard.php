@@ -12,6 +12,11 @@ class SchemaGuard
 {
     private static $applied = null;
 
+    public static function resetState()
+    {
+        self::$applied = null;
+    }
+
     /** Runs $fn once, ever, for the given $key. Never fatal: a failed migration is logged and retried next request. */
     public static function ensure($db, $key, callable $fn)
     {

@@ -15,18 +15,26 @@ function handleMarketingRequest($action, $param) {
 
         switch ($action) {
             case 'dashboard':
+                PermissionHelper::checkPermission($db, $auth, 'marketing', 'can_view');
                 return getMarketingDashboard($db, $auth);
             case 'duty-start':
             case 'duty_start':
+                PermissionHelper::checkPermission($db, $auth, 'marketing', 'can_create');
                 return startDuty($db, $auth, $data);
             case 'duty-end':
             case 'duty_end':
+                PermissionHelper::checkPermission($db, $auth, 'marketing', 'can_edit');
                 return endDuty($db, $auth, $data);
             case 'visit-create':
             case 'visit_create':
+                PermissionHelper::checkPermission($db, $auth, 'marketing', 'can_create');
                 return createFieldVisit($db, $auth, $data);
             case 'visits':
-                return ['success' => true, 'data' => getRecentVisits($db, $auth['employee_id'])];
+                PermissionHelper::checkPermission($db, $auth, 'marketing', 'can_view');
+                return ['success' => true, 'data' => getRecentVisits($db, $auth, $data)];
+            case 'overview':
+                PermissionHelper::checkPermission($db, $auth, 'marketing', 'can_view');
+                return getMarketingOverview($db, $auth, $data);
             default:
                 return ['success' => false, 'message' => 'Invalid marketing action'];
         }
@@ -57,13 +65,68 @@ function getActiveDuty($db, $employeeId) {
     return $stmt->fetch();
 }
 
-function getRecentVisits($db, $employeeId, $limit = 50) {
-    $stmt = $db->prepare("SELECT * FROM field_visits
-        WHERE employee_id = ?
-        ORDER BY visit_date DESC, id DESC
-        LIMIT $limit");
-    $stmt->execute([$employeeId]);
+function getRecentVisits($db, $auth, $data = [], $limit = 100) {
+    $role = $auth['role'] ?? '';
+    $eid = (int)($auth['employee_id'] ?? 0);
+    $isAdminOrHR = in_array($role, ['super_admin', 'admin', 'hr_admin', 'hr', 'hr_executive', 'digital_marketing_admin', 'marketing_admin'], true);
+
+    $sql = "SELECT fv.*, e.first_name, e.last_name, e.employee_code, d.name as department_name
+            FROM field_visits fv
+            LEFT JOIN employees e ON e.id = fv.employee_id
+            LEFT JOIN departments d ON d.id = e.department_id
+            WHERE 1=1";
+    $params = [];
+
+    if (isset($data['employee_id']) && $data['employee_id'] !== '' && $isAdminOrHR) {
+        $sql .= " AND fv.employee_id = ?";
+        $params[] = (int)$data['employee_id'];
+    } elseif (!$isAdminOrHR) {
+        $sql .= " AND fv.employee_id = ?";
+        $params[] = $eid;
+    }
+
+    if (isset($data['date']) && $data['date'] !== '') {
+        $sql .= " AND fv.visit_date = ?";
+        $params[] = $data['date'];
+    }
+
+    $sql .= " ORDER BY fv.visit_date DESC, fv.id DESC LIMIT $limit";
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
     return $stmt->fetchAll();
+}
+
+function getMarketingOverview($db, $auth, $data) {
+    $role = $auth['role'] ?? '';
+    $eid = (int)($auth['employee_id'] ?? 0);
+    $isAdminOrHR = in_array($role, ['super_admin', 'admin', 'hr_admin', 'hr', 'hr_executive', 'digital_marketing_admin', 'marketing_admin'], true);
+
+    $dutySql = "SELECT dl.*, e.first_name, e.last_name, e.employee_code 
+                FROM duty_logs dl 
+                LEFT JOIN employees e ON e.id = dl.employee_id 
+                WHERE 1=1";
+    $params = [];
+
+    if (isset($data['employee_id']) && $data['employee_id'] !== '' && $isAdminOrHR) {
+        $dutySql .= " AND dl.employee_id = ?";
+        $params[] = (int)$data['employee_id'];
+    } elseif (!$isAdminOrHR) {
+        $dutySql .= " AND dl.employee_id = ?";
+        $params[] = $eid;
+    }
+
+    $dutySql .= " ORDER BY dl.duty_date DESC, dl.id DESC LIMIT 50";
+    $stmt = $db->prepare($dutySql);
+    $stmt->execute($params);
+    $dutyLogs = $stmt->fetchAll();
+
+    return [
+        'success' => true,
+        'data' => [
+            'duty_logs' => $dutyLogs,
+            'visits' => getRecentVisits($db, $auth, $data, 50),
+        ],
+    ];
 }
 
 function getMarketingDashboard($db, $auth) {
@@ -99,7 +162,7 @@ function getMarketingDashboard($db, $auth) {
         'success' => true,
         'data' => [
             'duty' => $duty ?: null,
-            'visits' => getRecentVisits($db, $eid),
+            'visits' => getRecentVisits($db, $auth),
         ],
     ];
 }

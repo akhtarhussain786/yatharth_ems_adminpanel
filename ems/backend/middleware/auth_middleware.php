@@ -73,6 +73,37 @@ class AuthMiddleware {
             exit;
         }
 
+        // Verify that user is active and sync current role & role_id
+        try {
+            $db = (new Database())->getConnection();
+            $uStmt = $db->prepare("SELECT u.id, u.status, u.role_id, r.name as role_name, e.id as employee_id 
+                                   FROM users u 
+                                   LEFT JOIN roles r ON r.id = u.role_id 
+                                   LEFT JOIN employees e ON e.user_id = u.id 
+                                   WHERE u.id = ? LIMIT 1");
+            $uStmt->execute([$payload['user_id']]);
+            $activeUser = $uStmt->fetch();
+
+            if (!$activeUser || (int)$activeUser['status'] !== 1) {
+                http_response_code(401);
+                echo json_encode(['success' => false, 'message' => 'Account is inactive or suspended', 'force_logout' => true]);
+                exit;
+            }
+
+            // Keep role, role_id, and employee_id dynamically synced with database
+            if (!empty($activeUser['role_name'])) {
+                $payload['role'] = $activeUser['role_name'];
+            }
+            if (!empty($activeUser['role_id'])) {
+                $payload['role_id'] = (int)$activeUser['role_id'];
+            }
+            if (!empty($activeUser['employee_id'])) {
+                $payload['employee_id'] = (int)$activeUser['employee_id'];
+            }
+        } catch (Throwable $e) {
+            error_log('auth_middleware user validation: ' . $e->getMessage());
+        }
+
         // Update last activity in session
         self::updateActivity($payload['user_id']);
 

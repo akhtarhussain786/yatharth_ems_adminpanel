@@ -5,6 +5,7 @@ require_once '../includes/config.php';
 if (!isLoggedIn()) redirect('../index.php');
 
 requireModuleAccess('holidays');
+require_once __DIR__ . '/../../backend/helpers/fcm_helper.php';
 
 // =============================================
 // AUTO-GENERATE SUNDAYS AS WEEKLY OFF
@@ -120,6 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['action'] ?? '') === 'create
     $date = $_POST['holiday_date'] ?? '';
     $desc = sanitize($_POST['description'] ?? '');
     $type = sanitize($_POST['type'] ?? 'public');
+    $sendNotification = !empty($_POST['send_notification']);
     
     // Check if date is Sunday
     $dayOfWeek = date('w', strtotime($date));
@@ -148,7 +150,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['action'] ?? '') === 'create
     }
     
     $pdo->prepare("INSERT INTO holidays (title, holiday_date, description, type) VALUES (?,?,?,?)")->execute([$title, $date, $desc, $type]);
-    $_SESSION['flash'] = 'Holiday added successfully';
+    $newHolidayId = (int)$pdo->lastInsertId();
+
+    // Send FCM Push Notification to App if checked or if festival/holiday
+    if ($sendNotification && $type !== 'weekly_off') {
+        try {
+            $dayName = date('l', strtotime($date));
+            $dateFormatted = date('d M Y', strtotime($date));
+            $typeTitle = ($type === 'festival') ? 'Festival Holiday' : (($type === 'national_holiday') ? 'National Holiday' : 'Holiday Announcement');
+            $notifTitle = "🎉 " . $typeTitle . ": " . $title;
+            $notifMsg = "Office will remain closed on " . $dateFormatted . " (" . $dayName . ") on the occasion of " . $title . ($desc ? ". " . $desc : ".");
+            
+            // In-app notification
+            $pdo->prepare("INSERT INTO notifications (title, message, type, send_to) VALUES (?, ?, 'announcement', 'all')")->execute([$notifTitle, $notifMsg]);
+            
+            // Mobile FCM Push
+            FCMHelper::sendToTopicOrGroup($pdo, 'all', null, $notifTitle, $notifMsg, [
+                'type' => 'holiday',
+                'holiday_id' => $newHolidayId,
+                'title' => $title,
+                'date' => $date
+            ]);
+            $_SESSION['flash'] = "Holiday added & FCM Push Notification sent to all employees!";
+        } catch (Throwable $e) {
+            error_log("Holiday FCM error: " . $e->getMessage());
+            $_SESSION['flash'] = 'Holiday added successfully (FCM push notice logged).';
+        }
+    } else {
+        $_SESSION['flash'] = 'Holiday added successfully';
+    }
+
     redirect('holidays.php');
 }
 
@@ -163,6 +194,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['action'] ?? '') === 'edit')
     $date = $_POST['holiday_date'] ?? '';
     $desc = sanitize($_POST['description'] ?? '');
     $type = sanitize($_POST['type'] ?? 'public');
+    $sendNotification = !empty($_POST['send_notification']);
     
     // If changing to weekly off, check if Sunday
     if ($type == 'weekly_off') {
@@ -182,7 +214,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['action'] ?? '') === 'edit')
     }
     
     $pdo->prepare("UPDATE holidays SET title=?, holiday_date=?, description=?, type=? WHERE id=?")->execute([$title, $date, $desc, $type, $id]);
-    $_SESSION['flash'] = 'Holiday updated successfully';
+    
+    if ($sendNotification && $type !== 'weekly_off') {
+        try {
+            $dayName = date('l', strtotime($date));
+            $dateFormatted = date('d M Y', strtotime($date));
+            $typeTitle = ($type === 'festival') ? 'Festival Holiday Update' : 'Holiday Update';
+            $notifTitle = "🎉 " . $typeTitle . ": " . $title;
+            $notifMsg = "Office will remain closed on " . $dateFormatted . " (" . $dayName . ") on the occasion of " . $title . ($desc ? ". " . $desc : ".");
+            
+            $pdo->prepare("INSERT INTO notifications (title, message, type, send_to) VALUES (?, ?, 'announcement', 'all')")->execute([$notifTitle, $notifMsg]);
+            
+            FCMHelper::sendToTopicOrGroup($pdo, 'all', null, $notifTitle, $notifMsg, [
+                'type' => 'holiday',
+                'holiday_id' => $id,
+                'title' => $title,
+                'date' => $date
+            ]);
+            $_SESSION['flash'] = "Holiday updated & FCM notification sent to all employees!";
+        } catch (Throwable $e) {
+            $_SESSION['flash'] = 'Holiday updated successfully';
+        }
+    } else {
+        $_SESSION['flash'] = 'Holiday updated successfully';
+    }
+
+    redirect('holidays.php');
+}
+
+// =============================================
+// BROADCAST PUSH NOTIFICATION FOR HOLIDAY
+// =============================================
+if (isset($_GET['send_push'])) {
+    requireModuleAccess('holidays', 'can_edit');
+    $id = intval($_GET['send_push']);
+    $stmt = $pdo->prepare("SELECT * FROM holidays WHERE id = ?");
+    $stmt->execute([$id]);
+    $h = $stmt->fetch();
+    
+    if ($h) {
+        try {
+            $dayName = date('l', strtotime($h['holiday_date']));
+            $dateFormatted = date('d M Y', strtotime($h['holiday_date']));
+            $typeTitle = ($h['type'] === 'festival') ? 'Festival Holiday Notice' : (($h['type'] === 'national_holiday') ? 'National Holiday Notice' : 'Holiday Notice');
+            $notifTitle = "🎉 " . $typeTitle . ": " . $h['title'];
+            $notifMsg = "Office will remain closed on " . $dateFormatted . " (" . $dayName . ") for " . $h['title'] . ($h['description'] ? ". " . $h['description'] : ".");
+            
+            $pdo->prepare("INSERT INTO notifications (title, message, type, send_to) VALUES (?, ?, 'announcement', 'all')")->execute([$notifTitle, $notifMsg]);
+            
+            $res = FCMHelper::sendToTopicOrGroup($pdo, 'all', null, $notifTitle, $notifMsg, [
+                'type' => 'holiday',
+                'holiday_id' => $id,
+                'title' => $h['title'],
+                'date' => $h['holiday_date']
+            ]);
+            
+            $_SESSION['flash'] = "FCM push notification for '{$h['title']}' broadcasted to all employees mobile app!";
+        } catch (Throwable $e) {
+            $_SESSION['flash_error'] = "Notification Error: " . $e->getMessage();
+        }
+    }
     redirect('holidays.php');
 }
 
@@ -443,7 +534,10 @@ unset($_SESSION['flash']);
                         <td><?php echo sanitize($h['description']) ?: '-'; ?></td>
                         <td class="text-center">
                             <?php if (!($isAutoSunday)): ?>
-                                <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#editModal<?php echo $h['id']; ?>">
+                                <a href="?send_push=<?php echo $h['id']; ?>" class="btn btn-sm btn-warning text-dark me-1" title="Send FCM Push Notification to App" onclick="return confirm('Kya aap sabhi employees ke phone par is Holiday ka FCM Push Notification bhejna chahte hain?')">
+                                    <i class="fas fa-bell"></i>
+                                </a>
+                                <button class="btn btn-sm btn-info me-1" data-bs-toggle="modal" data-bs-target="#editModal<?php echo $h['id']; ?>" title="Edit">
                                     <i class="fas fa-edit"></i>
                                 </button>
                             <?php endif; ?>
@@ -489,7 +583,7 @@ unset($_SESSION['flash']);
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label fw-bold">Title <span class="text-danger">*</span></label>
-                        <input type="text" name="title" class="form-control" placeholder="e.g., Diwali" required>
+                        <input type="text" name="title" class="form-control" placeholder="e.g., Diwali, Holi, Independence Day" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-bold">Date <span class="text-danger">*</span></label>
@@ -499,22 +593,29 @@ unset($_SESSION['flash']);
                     <div class="mb-3">
                         <label class="form-label fw-bold">Type <span class="text-danger">*</span></label>
                         <select name="type" class="form-select" required>
-                            <option value="weekly_off">Weekly Off</option>
-                            <option value="festival">Festival</option>
+                            <option value="festival" selected>Festival</option>
                             <option value="national_holiday">National Holiday</option>
                             <option value="company_holiday">Company Holiday</option>
+                            <option value="weekly_off">Weekly Off</option>
                         </select>
                         <small class="text-muted">If festival on Sunday, weekly off will be automatically removed</small>
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-bold">Description</label>
-                        <textarea name="description" class="form-control" rows="2" placeholder="Optional description..."></textarea>
+                        <textarea name="description" class="form-control" rows="2" placeholder="Optional holiday details / greetings..."></textarea>
+                    </div>
+                    <div class="form-check form-switch mb-2 p-2 bg-light rounded border">
+                        <input class="form-check-input ms-0 me-2" type="checkbox" name="send_notification" id="sendNotification" value="1" checked>
+                        <label class="form-check-label fw-bold text-primary" for="sendNotification">
+                            <i class="fas fa-bell me-1"></i> Send Instant FCM Push Notification to App
+                        </label>
+                        <div class="form-text text-muted small ms-4">Holiday add hote hi sabhi employees ke mobile par notification chala jayega.</div>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-primary">
-                        <i class="fas fa-save me-1"></i>Save Holiday
+                        <i class="fas fa-save me-1"></i>Save & Broadcast Holiday
                     </button>
                 </div>
             </div>
@@ -559,6 +660,12 @@ unset($_SESSION['flash']);
                     <div class="mb-3">
                         <label class="form-label fw-bold">Description</label>
                         <textarea name="description" class="form-control" rows="2"><?php echo sanitize($h['description']); ?></textarea>
+                    </div>
+                    <div class="form-check form-switch mb-2 p-2 bg-light rounded border">
+                        <input class="form-check-input ms-0 me-2" type="checkbox" name="send_notification" id="sendNotificationEdit<?php echo $h['id']; ?>" value="1">
+                        <label class="form-check-label fw-bold text-primary" for="sendNotificationEdit<?php echo $h['id']; ?>">
+                            <i class="fas fa-bell me-1"></i> Send Updated FCM Push Notification to App
+                        </label>
                     </div>
                 </div>
                 <div class="modal-footer">

@@ -32,7 +32,19 @@ try {
         ]
     );
 } catch (PDOException $e) {
-    die("Database connection failed: " . $e->getMessage());
+    try {
+        $pdo = new PDO(
+            "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4",
+            'root',
+            '',
+            [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            ]
+        );
+    } catch (PDOException $e2) {
+        die("Database connection failed: " . $e->getMessage());
+    }
 }
 
 // The admin panel and the API share one database, so they must share one set of
