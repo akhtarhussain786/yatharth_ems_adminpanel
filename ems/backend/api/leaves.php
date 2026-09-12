@@ -339,99 +339,12 @@ function rejectLeave($db, $auth, $id, $data) {
     return ['success' => true, 'message' => 'Leave request rejected'];
 }
 
-/** Opening balance for Earned Leave can never exceed one year's allotment. */
-define('LEAVE_EARNED_CARRY_CAP', 15.0);
-
-/** Yearly entitlement per leave type. Half Day and LWP are not entitlements. */
-function leaveAllocations() {
-    return [
-        'Casual Leave'       => 8.0,
-        'Sick Leave'         => 8.0,
-        'Earned Leave'       => 15.0,
-        'Half Day'           => 0.0,
-        'Leave Without Pay'  => 0.0,
-    ];
-}
-
-/**
- * Unused Earned Leave from the previous year.
- *
- * Derived from last year's approved requests rather than a stored figure, so it
- * stays right even where leave_balances was never populated.
- */
-function earnedLeaveCarriedForward($db, $employeeId, $year) {
-    try {
-        $stmt = $db->prepare("SELECT COALESCE(SUM(total_days), 0) AS used
-                              FROM leave_requests
-                              WHERE employee_id = ? AND leave_type = 'Earned Leave'
-                                AND status = 'Approved' AND YEAR(start_date) = ?");
-        $stmt->execute([$employeeId, $year - 1]);
-        $usedLastYear = (float) $stmt->fetchColumn();
-
-        $allocations = leaveAllocations();
-        return max(0.0, $allocations['Earned Leave'] - $usedLastYear);
-    } catch (Exception $e) {
-        error_log('earnedLeaveCarriedForward: ' . $e->getMessage());
-        return 0.0;
-    }
-}
+require_once __DIR__ . '/../helpers/leave_balance.php';
 
 function getLeaveBalance($db, $auth) {
-    $eid = $auth['employee_id'];
-    $currentYear = date('Y');
-
-    $allocations = leaveAllocations();
-
-    // Earned Leave is transferable: whatever went unused last year is added on
-    // top, but the opening balance is capped at one year's allotment.
-    $carried = earnedLeaveCarriedForward($db, $eid, (int) $currentYear);
-    if ($carried > 0) {
-        $allocations['Earned Leave'] = min(
-            $allocations['Earned Leave'] + $carried,
-            LEAVE_EARNED_CARRY_CAP
-        );
-    }
-
-    // Fetch custom allocations if present in leave_balances
-    $balStmt = $db->prepare("SELECT leave_type, allotted, used FROM leave_balances WHERE employee_id = ? AND year = ?");
-    $balStmt->execute([$eid, $currentYear]);
-    $dbBalances = $balStmt->fetchAll();
-
-    $customAllotted = [];
-    $customUsed = [];
-    foreach ($dbBalances as $b) {
-        if ($b['allotted'] > 0) $customAllotted[$b['leave_type']] = (float)$b['allotted'];
-        $customUsed[$b['leave_type']] = (float)$b['used'];
-    }
-
-    // Also calculate dynamically from approved leave_requests for fallback accuracy
-    $reqStmt = $db->prepare("SELECT leave_type, SUM(total_days) as used_days FROM leave_requests WHERE employee_id = ? AND YEAR(start_date) = ? AND status = 'Approved' GROUP BY leave_type");
-    $reqStmt->execute([$eid, $currentYear]);
-    $reqUsed = $reqStmt->fetchAll();
-
-    foreach ($reqUsed as $ru) {
-        $type = $ru['leave_type'];
-        $usedVal = (float)$ru['used_days'];
-        if (!isset($customUsed[$type]) || $usedVal > $customUsed[$type]) {
-            $customUsed[$type] = $usedVal;
-        }
-    }
-
-    $balances = [];
-    foreach ($allocations as $type => $defaultAllotted) {
-        $allotted = $customAllotted[$type] ?? $defaultAllotted;
-        $used = $customUsed[$type] ?? 0.0;
-        $remaining = max(0.0, $allotted - $used);
-
-        $balances[] = [
-            'leave_type' => $type,
-            'allotted'   => $allotted,
-            'used'       => $used,
-            'remaining'  => $remaining
-        ];
-    }
-
-    return ['success' => true, 'data' => $balances];
+    // The arithmetic lives in helpers/leave_balance.php so the admin panel's
+    // per-employee report and the app show the same figures.
+    return ['success' => true, 'data' => computeLeaveBalances($db, $auth['employee_id'], date('Y'))];
 }
 
 function getLeaveCalendar($db, $auth, $data) {

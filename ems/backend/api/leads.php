@@ -1,4 +1,46 @@
 <?php
+
+/**
+ * The app shows lead statuses and priorities as display labels ("Follow-up",
+ * "Not Interested", "Urgent"); the column stores them as snake_case. Nothing
+ * translated between the two, so the three labels whose spelling differs by
+ * more than case were rejected outright and the save failed — "Follow-up"
+ * among them, which is the status on most of the leads in the system.
+ *
+ * Folds case, and treats spaces, hyphens and underscores as the same
+ * separator, so any spelling of a known value resolves to the stored one.
+ */
+function normaliseLeadTerm($value, array $allowed, $fallback) {
+    $value = trim((string) $value);
+    if ($value === '') {
+        return $fallback;
+    }
+    $key = preg_replace('/[\s\-_]+/', '_', strtolower($value));
+    foreach ($allowed as $canonical) {
+        if (preg_replace('/[\s\-_]+/', '_', strtolower($canonical)) === $key) {
+            return $canonical;
+        }
+    }
+    return $fallback;
+}
+
+function leadStatusValues() {
+    return [
+        'new', 'contacted', 'calling', 'connected', 'busy', 'no_answer',
+        'wrong_number', 'follow_up', 'interested', 'not_interested',
+        'qualified', 'demo_scheduled', 'meeting_scheduled', 'proposal',
+        'quotation_sent', 'negotiation', 'won', 'lost', 'closed', 'duplicate',
+    ];
+}
+
+function normaliseLeadStatus($value, $fallback = 'new') {
+    return normaliseLeadTerm($value, leadStatusValues(), $fallback);
+}
+
+function normaliseLeadPriority($value, $fallback = 'medium') {
+    return normaliseLeadTerm($value, ['low', 'medium', 'high', 'urgent'], $fallback);
+}
+
 function handleLeadRequest($action, $param) {
     $db = (new Database())->getConnection();
     $auth = AuthMiddleware::authenticate();
@@ -99,6 +141,14 @@ function canAccessLead($db, $auth, $leadId, $permission = 'view') {
  */
 function leadVisibilityScope($role, $employeeId) {
     if (in_array($role, ['super_admin', 'admin', 'hr_admin', 'hr', 'hr_executive', 'digital_marketing_admin', 'marketing_admin', 'telecaller_admin', 'sales_admin'], true)) return null;
+
+    // Without an employee id there is nothing to scope by, and every
+    // comparison below would run against NULL. Show nothing rather than risk
+    // matching somebody else's row.
+    $employeeId = (int) $employeeId;
+    if ($employeeId <= 0) {
+        return ['sql' => '(1 = 0)', 'params' => []];
+    }
 
     $sql = '(l.employee_id = ? OR l.created_by = ? OR l.assigned_to = ? OR l.assigned_sales = ?';
     $params = [$employeeId, $employeeId, $employeeId, $employeeId];
@@ -239,7 +289,12 @@ function createLead($db, $auth, $data) {
     PermissionHelper::checkPermission($db, $auth, 'leads', 'can_create');
     $eid = $auth['employee_id'] ?? null;
     $uid = $auth['user_id'] ?? null;
-    $createdById = $eid ?: $uid;
+    // created_by is compared against an employee id in leadVisibilityScope(),
+    // but employees.id and users.id overlap. Falling back to the user id meant
+    // a lead could match a different employee who happened to share that
+    // number, showing them somebody else's lead. Null is honest; employee_id
+    // still records the creator and admins see the row either way.
+    $createdById = $eid ?: null;
 
     $customerName = Validator::sanitize($data['customer_name'] ?? '');
     $phone = Validator::sanitize($data['phone'] ?? $data['customer_phone'] ?? '');
@@ -250,8 +305,21 @@ function createLead($db, $auth, $data) {
     $campaignName = Validator::sanitize($data['campaign_name'] ?? '');
     $requirement = Validator::sanitize($data['requirement'] ?? '');
     $budget = $data['budget'] ?? null;
-    $priority = Validator::sanitize($data['priority'] ?? 'medium');
+    $priority = normaliseLeadPriority(Validator::sanitize($data['priority'] ?? 'medium'));
     $notes = Validator::sanitize($data['notes'] ?? '');
+
+    // The form collects these too. They used to be read nowhere, so an
+    // employee filled in an address and a follow-up date and none of it was
+    // saved — the lead came back missing half of what they had typed.
+    $address       = Validator::sanitize($data['address'] ?? '');
+    $state         = Validator::sanitize($data['state'] ?? '');
+    $pincode       = Validator::sanitize($data['pincode'] ?? '');
+    $altPhone      = Validator::sanitize($data['alt_phone'] ?? $data['alternate_mobile'] ?? '');
+    $followUpType  = Validator::sanitize($data['follow_up_type'] ?? '');
+    $nextAction    = Validator::sanitize($data['next_action'] ?? '');
+    $followUpDate  = trim((string) ($data['follow_up_date'] ?? ''));
+    $followUpDate  = $followUpDate !== '' ? $followUpDate : null;
+    $status        = normaliseLeadStatus(Validator::sanitize($data['status'] ?? 'new'));
 
     if (!$customerName) return ['success' => false, 'message' => 'Customer name is required'];
     if (!$phone) return ['success' => false, 'message' => 'Phone is required'];
@@ -266,12 +334,14 @@ function createLead($db, $auth, $data) {
         $assignedTo = autoAssignTelecaller($db);
     }
 
-    $stmt = $db->prepare("INSERT INTO leads (customer_name, first_name, last_name, customer_phone, mobile, email, customer_email, company_name, city, source, lead_source, campaign_name, requirement, budget, priority, notes, employee_id, created_by, assigned_to, assigned_by, status) VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new')");
+    $stmt = $db->prepare("INSERT INTO leads (customer_name, first_name, last_name, customer_phone, mobile, email, customer_email, company_name, city, state, pincode, address, alternate_mobile, source, lead_source, campaign_name, requirement, budget, priority, notes, follow_up_date, follow_up_type, next_action, employee_id, created_by, assigned_to, assigned_by, status) VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $stmt->execute([
         $customerName, $customerName, $phone, $phone, $email, $email,
-        $companyName, $city, $source, $source, $campaignName,
+        $companyName, $city, $state, $pincode, $address, $altPhone,
+        $source, $source, $campaignName,
         $requirement, $budget, $priority, $notes,
-        $eid, $createdById, $assignedTo, $assignedTo ? $auth['user_id'] : null
+        $followUpDate, $followUpType, $nextAction,
+        $eid, $createdById, $assignedTo, $assignedTo ? $auth['user_id'] : null, $status
     ]);
 
     $leadId = $db->lastInsertId();
@@ -320,13 +390,32 @@ function updateLead($db, $auth, $data) {
         return ['success' => false, 'message' => 'Access denied: You do not have permission to edit this lead'];
     }
 
-    $fields = ['customer_name','customer_phone','mobile','email','customer_email','company_name','city','source','lead_source','campaign_name','requirement','budget','priority','notes','status','follow_up_date'];
+    // Every field the create/edit form offers. Anything left out here is
+    // silently discarded on save, which is how the address, alternate number,
+    // follow-up type and next action were being lost.
+    $fields = ['customer_name','customer_phone','mobile','email','customer_email','company_name',
+               'city','state','pincode','address','alternate_mobile','source','lead_source',
+               'campaign_name','requirement','budget','priority','notes','status',
+               'follow_up_date','follow_up_type','next_action'];
     $updates = []; $params = [];
+
+    // The app names it alt_phone; the column is alternate_mobile.
+    if (isset($data['alt_phone']) && !isset($data['alternate_mobile'])) {
+        $data['alternate_mobile'] = $data['alt_phone'];
+    }
 
     foreach ($fields as $f) {
         if (isset($data[$f])) {
+            $value = Validator::sanitize(strval($data[$f]));
+            // The app sends display labels here ("Follow-up", "Not Interested",
+            // "Urgent"); fold them onto the values the column stores.
+            if ($f === 'status') {
+                $value = normaliseLeadStatus($value);
+            } elseif ($f === 'priority') {
+                $value = normaliseLeadPriority($value);
+            }
             $updates[] = "$f=?";
-            $params[] = Validator::sanitize(strval($data[$f]));
+            $params[] = $value;
         }
     }
 
@@ -468,7 +557,7 @@ function assignToSales($db, $auth, $data) {
 
 function updateLeadStatus($db, $auth, $data) {
     $id = intval($data['id'] ?? $data['lead_id'] ?? 0);
-    $status = Validator::sanitize($data['status'] ?? '');
+    $status = normaliseLeadStatus(Validator::sanitize($data['status'] ?? ''), '');
     $notes = Validator::sanitize($data['notes'] ?? '');
 
     if (!$id) return ['success' => false, 'message' => 'Lead ID required'];
@@ -504,7 +593,12 @@ function importLeadsCSV($db, $auth, $data) {
     PermissionHelper::checkPermission($db, $auth, 'leads', 'can_create');
     $eid = $auth['employee_id'] ?? null;
     $uid = $auth['user_id'] ?? null;
-    $createdById = $eid ?: $uid;
+    // created_by is compared against an employee id in leadVisibilityScope(),
+    // but employees.id and users.id overlap. Falling back to the user id meant
+    // a lead could match a different employee who happened to share that
+    // number, showing them somebody else's lead. Null is honest; employee_id
+    // still records the creator and admins see the row either way.
+    $createdById = $eid ?: null;
     $leads = $data['leads'] ?? [];
     $imported = 0; $errors = [];
 

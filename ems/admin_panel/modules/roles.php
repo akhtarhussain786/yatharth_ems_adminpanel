@@ -228,10 +228,17 @@ require_once '../includes/header.php';
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-hover mb-0">
-                <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Users</th><th>Actions</th></tr></thead>
+                <thead><tr><th style="width:38px"></th><th>ID</th><th>Name</th><th>Description</th><th>Users</th><th>Actions</th></tr></thead>
                 <tbody>
                     <?php foreach ($roles as $r): ?>
-                    <tr>
+                    <?php // Selecting a row is a convenience only — it changes nothing
+                          // on the server, it just marks which role you are working on. ?>
+                    <tr class="role-row" data-role-id="<?php echo $r['id']; ?>" data-role-name="<?php echo sanitize($r['name']); ?>">
+                        <td>
+                            <input type="radio" name="role_select" class="form-check-input role-select"
+                                   value="<?php echo $r['id']; ?>"
+                                   aria-label="Select role <?php echo sanitize($r['name']); ?>">
+                        </td>
                         <td><?php echo $r['id']; ?></td>
                         <td><code><?php echo sanitize($r['name']); ?></code></td>
                         <td><?php echo sanitize($r['description'] ?? '-'); ?></td>
@@ -300,6 +307,30 @@ require_once '../includes/header.php';
         </div>
     </div>
 </div>
+<style>
+/* The selected row, so it is obvious which role the buttons act on. */
+.role-row.is-selected { background: var(--primary-bg, #eef2ff); }
+.role-row { cursor: pointer; }
+</style>
+<script>
+(function () {
+    var rows = document.querySelectorAll('.role-row');
+    function select(row) {
+        rows.forEach(function (r) { r.classList.remove('is-selected'); });
+        row.classList.add('is-selected');
+        var radio = row.querySelector('.role-select');
+        if (radio) radio.checked = true;
+    }
+    rows.forEach(function (row) {
+        row.addEventListener('click', function (e) {
+            // Leave the action buttons and links alone.
+            if (e.target.closest('button, a')) return;
+            select(row);
+        });
+    });
+})();
+</script>
+
 
 <script>
 function editRole(id, name, desc) {

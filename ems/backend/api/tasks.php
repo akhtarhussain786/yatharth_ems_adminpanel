@@ -1,11 +1,17 @@
 <?php
 function mapTaskStatus($s) {
-    $map = ['pending'=>'Pending','in_progress'=>'In Progress','completed'=>'Completed','cancelled'=>'Cancelled'];
-    return $map[strtolower($s)] ?? 'Pending';
+    // Stored lowercase to match the column and what the app sends. Accepts the
+    // display spellings too, so an older client posting 'In Progress' still saves.
+    $map = [
+        'pending' => 'pending', 'in progress' => 'in_progress',
+        'in_progress' => 'in_progress', 'completed' => 'completed',
+        'cancelled' => 'cancelled', 'canceled' => 'cancelled',
+    ];
+    return $map[strtolower(trim($s))] ?? 'pending';
 }
 
 function mapPriority($p) {
-    return ucfirst(strtolower($p));
+    return strtolower(trim($p));
 }
 
 function handleTaskRequest($action, $param) {
@@ -61,7 +67,7 @@ function getMyTasks($db, $auth) {
         FROM tasks t
         LEFT JOIN employees e ON e.user_id = t.assigned_by
         WHERE t.assigned_to = ?
-        ORDER BY FIELD(t.status,'Pending','In Progress','Completed','Cancelled'), t.due_date ASC
+        ORDER BY FIELD(t.status,'pending','in_progress','completed','cancelled'), t.due_date ASC
     ");
     $stmt->execute([$eid]);
     return ['success' => true, 'data' => $stmt->fetchAll()];
@@ -72,7 +78,7 @@ function createTask($db, $auth, $data) {
     $employeeId = intval($data['employee_id'] ?? 0);
     $title = Validator::sanitize($data['title'] ?? '');
     $description = Validator::sanitize($data['description'] ?? '');
-    $priority = ucfirst(Validator::sanitize($data['priority'] ?? 'Medium'));
+    $priority = mapPriority(Validator::sanitize($data['priority'] ?? 'medium'));
     $dueDate = Validator::sanitize($data['due_date'] ?? '');
 
     $stmt = $db->prepare("INSERT INTO tasks (assigned_to, title, description, priority, assigned_by, due_date) VALUES (?, ?, ?, ?, ?, ?)");
@@ -101,7 +107,7 @@ function deleteTask($db, $auth, $id) {
 
 function completeTask($db, $auth, $id) {
     $eid = $auth['employee_id'];
-    $stmt = $db->prepare("UPDATE tasks SET status='Completed', completed_at=NOW() WHERE id=? AND assigned_to=?");
+    $stmt = $db->prepare("UPDATE tasks SET status='completed', completed_at=NOW() WHERE id=? AND assigned_to=?");
     $stmt->execute([$id, $eid]);
     return ['success' => true, 'message' => 'Task completed'];
 }

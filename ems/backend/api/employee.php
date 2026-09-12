@@ -40,7 +40,7 @@ function getProfile($db, $auth) {
         WHERE e.id = ?
     ");
     $stmt->execute([$auth['employee_id']]);
-    $employee = $stmt->fetch();
+    $employee = $stmt->fetch() ?: null;
 
     if (!$employee) {
         return ['success' => false, 'message' => 'Employee not found'];
@@ -52,7 +52,7 @@ function getProfile($db, $auth) {
         LIMIT 1
     ");
     $stmt->execute([$auth['employee_id']]);
-    $todayAttendance = $stmt->fetch();
+    $todayAttendance = $stmt->fetch() ?: null;
 
     return [
         'success' => true,
@@ -161,7 +161,7 @@ function changePassword($db, $auth) {
 
     $stmt = $db->prepare("SELECT id, password FROM users WHERE id = ?");
     $stmt->execute([$auth['user_id']]);
-    $user = $stmt->fetch();
+    $user = $stmt->fetch() ?: null;
 
     if (!$user) {
         return ['success' => false, 'message' => 'User not found'];

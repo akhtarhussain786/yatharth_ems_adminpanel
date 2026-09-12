@@ -20,8 +20,11 @@ function handleSettingsRequest($action) {
 }
 
 function getOfficeSettings($db) {
-    $stmt = $db->query("SELECT * FROM office_locations WHERE status = 1 LIMIT 1");
-    $office = $stmt->fetch();
+    // ORDER BY: without it "LIMIT 1" has no defined winner, and the rows here
+    // describe two sites 10 km apart. Whichever row the app measures against
+    // must be the same one the admin edits, every time.
+    $stmt = $db->query("SELECT * FROM office_locations WHERE status = 1 ORDER BY id LIMIT 1");
+    $office = $stmt->fetch() ?: null;
 
     $stmt = $db->query("SELECT setting_key, setting_value FROM settings");
     $settings = [];
@@ -40,7 +43,7 @@ function getOfficeSettings($db) {
 
 function getSalaryRules($db) {
     $stmt = $db->query("SELECT * FROM salary_rules WHERE status = 1 LIMIT 1");
-    $rules = $stmt->fetch();
+    $rules = $stmt->fetch() ?: null;
 
     return ['success' => true, 'data' => $rules];
 }

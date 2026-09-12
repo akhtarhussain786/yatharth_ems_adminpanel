@@ -164,27 +164,7 @@ function login($db, $data) {
 
     // Fetch permissions for this role
     $roleName = $role['name'] ?? 'employee';
-    $permissions = [];
-    if ($roleName === 'super_admin') {
-        $modules = ['employees','attendance','departments','designations','holidays','leaves','payroll','reports','settings','daily_work_reports','tasks','leads','campaigns','call_reports','follow_ups','hr_activities','notices','documents','roles','permissions','users','marketing','telecaller','sales','travel','expenses','assets','meetings','notifications'];
-        foreach ($modules as $m) {
-            $permissions[$m] = ['can_view' => true, 'can_create' => true, 'can_edit' => true, 'can_delete' => true];
-        }
-    } else {
-        $stmt = $db->prepare("SELECT module, can_view, can_create, can_edit, can_delete FROM permissions WHERE role_id = ?");
-        $stmt->execute([$user['role_id']]);
-        foreach ($stmt->fetchAll() as $row) {
-            $permissions[$row['module']] = [
-                'can_view' => (bool)$row['can_view'],
-                'can_create' => (bool)$row['can_create'],
-                'can_edit' => (bool)$row['can_edit'],
-                'can_delete' => (bool)$row['can_delete'],
-            ];
-        }
-        // Mirror the server-side fallback so the app is not told it lacks a
-        // module that checkPermission() will in fact allow.
-        $permissions = PermissionHelper::applyRoleFallback($permissions, $roleName);
-    }
+    $permissions = permissionsForRole($db, $user['role_id'], $roleName);
 
     $payload = [
         'user_id' => $user['id'],
@@ -286,6 +266,38 @@ function refreshToken($db) {
     ];
 }
 
+/**
+ * The permission map for a role, as the app should see it.
+ *
+ * Shared by login and validate: the app caches this at login and had no way to
+ * learn about a change afterwards, so granting or revoking a module in the
+ * admin panel did nothing until the employee happened to sign in again.
+ */
+function permissionsForRole($db, $roleId, $roleName) {
+    $permissions = [];
+    if ($roleName === 'super_admin') {
+        $modules = ['employees','attendance','departments','designations','holidays','leaves','payroll','reports','settings','daily_work_reports','tasks','leads','campaigns','call_reports','follow_ups','hr_activities','notices','documents','roles','permissions','users','marketing','telecaller','sales','travel','expenses','assets','meetings','notifications'];
+        foreach ($modules as $m) {
+            $permissions[$m] = ['can_view' => true, 'can_create' => true, 'can_edit' => true, 'can_delete' => true];
+        }
+        return $permissions;
+    }
+
+    $stmt = $db->prepare("SELECT module, can_view, can_create, can_edit, can_delete FROM permissions WHERE role_id = ?");
+    $stmt->execute([$roleId]);
+    foreach ($stmt->fetchAll() as $row) {
+        $permissions[$row['module']] = [
+            'can_view' => (bool)$row['can_view'],
+            'can_create' => (bool)$row['can_create'],
+            'can_edit' => (bool)$row['can_edit'],
+            'can_delete' => (bool)$row['can_delete'],
+        ];
+    }
+    // Mirror the server-side fallback so the app is not told it lacks a
+    // module that checkPermission() will in fact allow.
+    return PermissionHelper::applyRoleFallback($permissions, $roleName);
+}
+
 function validateToken($db) {
     $payload = AuthMiddleware::authenticate();
 
@@ -303,5 +315,18 @@ function validateToken($db) {
     $db->prepare("UPDATE user_sessions SET last_activity = NOW() WHERE user_id = ? AND is_active = 1")
         ->execute([$payload['user_id']]);
 
-    return ['success' => true, 'message' => 'Token is valid'];
+    // Hand back the permissions as they stand now, so the app can replace what
+    // it cached at login instead of acting on a stale copy for weeks.
+    $roleName = $payload['role'] ?? 'employee';
+    $roleId   = $payload['role_id'] ?? 0;
+
+    return [
+        'success' => true,
+        'message' => 'Token is valid',
+        'data' => [
+            'role' => $roleName,
+            'role_id' => $roleId,
+            'permissions' => permissionsForRole($db, $roleId, $roleName),
+        ],
+    ];
 }

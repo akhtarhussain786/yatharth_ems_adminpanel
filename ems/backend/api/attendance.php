@@ -533,7 +533,14 @@ function getTodayAttendance($db, $auth) {
     try {
         $stmt = $db->prepare("SELECT * FROM attendance WHERE employee_id = :employee_id AND attendance_date = CURDATE()");
         $stmt->execute([':employee_id' => $auth['employee_id']]);
+        // fetch() returns false when there is no row today. That false was
+        // serialised straight into the JSON, and the app casts this field to a
+        // map, so the whole response blew up for anyone not yet checked in --
+        // taking is_field_staff down with it. null is the honest value.
         $attendance = $stmt->fetch();
+        if ($attendance === false) {
+            $attendance = null;
+        }
 
         if ($attendance) {
             $attendance['check_in_photo'] = getFullImageUrl($attendance['check_in_photo']);
@@ -663,7 +670,8 @@ function isSunday($date = null) {
 
 function getOfficeLocation($db) {
     try {
-        $stmt = $db->query("SELECT latitude, longitude, radius FROM office_locations WHERE status = 1 LIMIT 1");
+        // Same row the settings endpoint reports, deterministically.
+        $stmt = $db->query("SELECT latitude, longitude, radius FROM office_locations WHERE status = 1 ORDER BY id LIMIT 1");
         $settings = $stmt->fetch();
         if (!$settings) {
             return ['latitude' => 28.6139, 'longitude' => 77.2090, 'radius_km' => 5.00];

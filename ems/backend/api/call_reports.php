@@ -80,6 +80,12 @@ function createCallReport($db, $auth, $data) {
     $followUpReq = intval($data['follow_up_required'] ?? 0);
     $callDate = Validator::sanitize($data['call_date'] ?? date('Y-m-d'));
 
+    // Neither was required, so a blank form saved a row with no customer on
+    // it at all — which is why the name and phone columns read empty in the
+    // admin list. createLead has always checked; this never did.
+    if ($customerName === '') return ['success' => false, 'message' => 'Customer name is required'];
+    if ($customerPhone === '') return ['success' => false, 'message' => 'Customer phone is required'];
+
     $stmt = $db->prepare("INSERT INTO call_reports (employee_id, customer_name, customer_phone, call_duration, call_type, status, notes, follow_up_required, call_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $stmt->execute([$eid, $customerName, $customerPhone, $callDuration, $callType, $status, $notes, $followUpReq, $callDate]);
     return ['success' => true, 'message' => 'Call report created', 'id' => $db->lastInsertId()];

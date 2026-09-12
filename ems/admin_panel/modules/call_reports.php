@@ -14,6 +14,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['action'] ?? '') === 'create
     $notes = sanitize($_POST['notes'] ?? '');
     $followUp = intval($_POST['follow_up_required'] ?? 0);
     $date = $_POST['call_date'] ?? date('Y-m-d');
+
+    // The browser's `required` is a courtesy, not a guarantee. Without this a
+    // posted-around form still wrote a call with no customer on it.
+    if ($name === '' || $phone === '') {
+        $_SESSION['flash_error'] = 'Customer name and phone are both required.';
+        redirect('call_reports.php');
+    }
+
     $pdo->prepare("INSERT INTO call_reports (employee_id, customer_name, customer_phone, call_duration, call_type, status, notes, follow_up_required, call_date) VALUES (?,?,?,?,?,?,?,?,?)")->execute([$eid, $name, $phone, $duration, $type, $status, $notes, $followUp, $date]);
     $_SESSION['flash'] = 'Call report created';
     redirect('call_reports.php');
@@ -31,6 +39,7 @@ $emps = $pdo->query("SELECT id, first_name, last_name, employee_code FROM employ
 
 require_once '../includes/header.php';
 $flash = $_SESSION['flash'] ?? ''; unset($_SESSION['flash']);
+$flashError = $_SESSION['flash_error'] ?? ''; unset($_SESSION['flash_error']);
 ?>
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="fw-bold"><i class="fas fa-phone-alt me-2"></i>Call Reports</h4>
@@ -39,6 +48,7 @@ $flash = $_SESSION['flash'] ?? ''; unset($_SESSION['flash']);
     <?php endif; ?>
 </div>
 <?php if ($flash): ?><div class="alert alert-success py-2"><?php echo $flash; ?></div><?php endif; ?>
+<?php if ($flashError): ?><div class="alert alert-danger py-2"><?php echo sanitize($flashError); ?></div><?php endif; ?>
 <div class="card">
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -47,8 +57,11 @@ $flash = $_SESSION['flash'] ?? ''; unset($_SESSION['flash']);
                 <tbody>
                     <?php foreach ($calls as $c): ?>
                     <tr>
-                        <td><?php echo sanitize($c['customer_name']); ?></td>
-                        <td><?php echo sanitize($c['customer_phone']); ?></td>
+                        <?php // Calls logged before the API required these have neither.
+                              // An em-dash says "not recorded"; an empty cell just
+                              // looks like the column is broken. ?>
+                        <td><?php echo trim((string) $c['customer_name']) !== '' ? sanitize($c['customer_name']) : '<span class="text-muted">&mdash;</span>'; ?></td>
+                        <td><?php echo trim((string) $c['customer_phone']) !== '' ? sanitize($c['customer_phone']) : '<span class="text-muted">&mdash;</span>'; ?></td>
                         <td><?php echo sanitize($c['first_name'] . ' ' . $c['last_name']); ?></td>
                         <td><?php echo gmdate('i:s', $c['call_duration']); ?></td>
                         <td><span class="badge bg-<?php echo $c['call_type'] == 'incoming' ? 'success' : ($c['call_type'] == 'outgoing' ? 'primary' : 'warning'); ?>"><?php echo ucfirst(str_replace('_', ' ', $c['call_type'])); ?></span></td>
@@ -76,7 +89,7 @@ $flash = $_SESSION['flash'] ?? ''; unset($_SESSION['flash']);
             <div class="modal-body">
                 <div class="mb-2"><label class="form-label">Employee</label><select name="employee_id" class="form-select" required><?php foreach ($emps as $e): ?><option value="<?php echo $e['id']; ?>"><?php echo sanitize($e['first_name'] . ' ' . $e['last_name']); ?></option><?php endforeach; ?></select></div>
                 <div class="mb-2"><label class="form-label">Customer Name</label><input type="text" name="customer_name" class="form-control" required></div>
-                <div class="mb-2"><label class="form-label">Phone</label><input type="text" name="customer_phone" class="form-control"></div>
+                <div class="mb-2"><label class="form-label">Phone</label><input type="text" name="customer_phone" class="form-control" required></div>
                 <div class="mb-2"><label class="form-label">Duration (seconds)</label><input type="number" name="call_duration" class="form-control" value="0"></div>
                 <div class="mb-2"><label class="form-label">Type</label><select name="call_type" class="form-select"><option value="outgoing">Outgoing</option><option value="incoming">Incoming</option><option value="follow_up">Follow Up</option></select></div>
                 <div class="mb-2"><label class="form-label">Status</label><select name="call_status" class="form-select"><option value="completed">Completed</option><option value="busy">Busy</option><option value="no_answer">No Answer</option><option value="callback">Callback</option><option value="not_interested">Not Interested</option></select></div>

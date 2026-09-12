@@ -32,19 +32,7 @@ try {
         ]
     );
 } catch (PDOException $e) {
-    try {
-        $pdo = new PDO(
-            "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4",
-            'root',
-            '',
-            [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            ]
-        );
-    } catch (PDOException $e2) {
-        die("Database connection failed: " . $e->getMessage());
-    }
+    die("Database connection failed: " . $e->getMessage());
 }
 
 // The admin panel and the API share one database, so they must share one set of
@@ -242,6 +230,31 @@ function formatWorkedHours($value)
     return $value;
 }
 
+/**
+ * Renders a stored coordinate pair as a link to the map, or a dash.
+ *
+ * duty_logs has carried start/end latitude and longitude all along and no
+ * page ever showed them, so there was no way to see where a duty was begun
+ * or ended.
+ */
+if (!function_exists('mapLink')) {
+    function mapLink($lat, $lng, $label = 'Map')
+    {
+        if ($lat === null || $lng === null || $lat === '' || $lng === '') {
+            return '<span class="text-muted small">&mdash;</span>';
+        }
+        $lat = (float) $lat;
+        $lng = (float) $lng;
+        if ($lat == 0.0 && $lng == 0.0) {
+            return '<span class="text-muted small">&mdash;</span>';
+        }
+        $url = 'https://www.google.com/maps?q=' . rawurlencode($lat . ',' . $lng);
+        return '<a href="' . $url . '" target="_blank" rel="noopener noreferrer" '
+             . 'class="small text-decoration-none" title="' . htmlspecialchars($lat . ', ' . $lng, ENT_QUOTES) . '">'
+             . '<i class="fas fa-location-dot me-1"></i>' . htmlspecialchars($label, ENT_QUOTES) . '</a>';
+    }
+}
+
 function sanitize($input) {
     return htmlspecialchars(strip_tags(trim($input)), ENT_QUOTES, 'UTF-8');
 }
@@ -333,6 +346,7 @@ function getMenuItems() {
         ['module' => 'departments', 'label' => 'Departments', 'icon' => 'building', 'link' => 'modules/departments.php'],
         ['module' => 'leave_requests', 'label' => 'Leave Requests', 'icon' => 'envelope-open-text', 'link' => 'modules/leave_requests.php'],
         ['module' => 'leave_requests', 'label' => 'Leave Calendar', 'icon' => 'calendar-day', 'link' => 'modules/leave_calendar.php'],
+        ['module' => 'leave_requests', 'label' => 'Leave Report', 'icon' => 'chart-pie', 'link' => 'modules/leave_report.php'],
         ['module' => 'holidays', 'label' => 'Holidays', 'icon' => 'calendar-alt', 'link' => 'modules/holidays.php'],
         ['module' => 'daily_work_reports', 'label' => 'Work Reports', 'icon' => 'file-signature', 'link' => 'modules/work_reports.php'],
         ['module' => 'tasks', 'label' => 'Tasks', 'icon' => 'tasks', 'link' => 'modules/tasks.php'],

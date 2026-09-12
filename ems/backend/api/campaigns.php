@@ -57,8 +57,10 @@ function createCampaign($db, $auth, $data) {
     $startDate = Validator::sanitize($data['start_date'] ?? '');
     $endDate = Validator::sanitize($data['end_date'] ?? '');
 
-    $stmt = $db->prepare("INSERT INTO campaigns (employee_id, campaign_name, platform, budget, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?)");
-    $stmt->execute([$eid, $campaignName, $platform, $budget, $startDate ?: null, $endDate ?: null]);
+    // `name` is a legacy NOT NULL column with no default; omitting it made every
+    // create fail with 1364. Both columns hold the same campaign name.
+    $stmt = $db->prepare("INSERT INTO campaigns (employee_id, name, campaign_name, platform, budget, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$eid, $campaignName, $campaignName, $platform, $budget, $startDate ?: null, $endDate ?: null]);
     return ['success' => true, 'message' => 'Campaign created', 'id' => $db->lastInsertId()];
 }
 

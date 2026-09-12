@@ -182,6 +182,15 @@ function verifyFaceForAttendance($db, $employeeId, $rawEmbedding, $action = 'che
     if (!$candidate) {
         // Enrolled, but the app sent nothing usable — an older build, or the
         // capture failed. Only refuse when the policy is to block.
+        //
+        // Logged either way. This returned before reaching the log below, so
+        // in any mode other than 'block' a check-in carrying no face at all
+        // was admitted and left no trace — the one case most worth seeing,
+        // since sending nothing is exactly what an impostor on an old build
+        // would do. A null similarity marks "no face supplied" as distinct
+        // from a face that was measured and failed.
+        logFaceVerification($db, $employeeId, $action, null, faceMatchThreshold($db), false, $mode);
+
         $allowed = $mode !== 'block';
         return [
             'allowed' => $allowed,

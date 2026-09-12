@@ -9,18 +9,30 @@ $message = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['office_name'])) {
         try {
-            $stmt = $pdo->prepare("UPDATE office_locations SET office_name=?, latitude=?, longitude=?, radius=?, address=? WHERE id=1");
-            $stmt->execute([
+            // Save updates the row the app actually measures against, and only
+            // inserts when there genuinely is not one.
+            //
+            // This used to UPDATE id=1 and then INSERT whenever rowCount() came
+            // back 0 — but rowCount() is 0 when the row matched and nothing
+            // changed, so saving the page unaltered added another office every
+            // time. That is where the duplicate rows came from, and with two
+            // sites 10 km apart among them it was a live hazard.
+            $existing = $pdo->query("SELECT id FROM office_locations WHERE status = 1 ORDER BY id LIMIT 1")->fetchColumn();
+
+            $values = [
                 sanitize($_POST['office_name']),
                 $_POST['office_latitude'],
                 $_POST['office_longitude'],
                 (int)$_POST['office_radius'],
                 sanitize($_POST['office_address'] ?? '')
-            ]);
+            ];
 
-            if ($stmt->rowCount() == 0) {
+            if ($existing) {
+                $pdo->prepare("UPDATE office_locations SET office_name=?, latitude=?, longitude=?, radius=?, address=? WHERE id=?")
+                    ->execute(array_merge($values, [$existing]));
+            } else {
                 $pdo->prepare("INSERT INTO office_locations (office_name, latitude, longitude, radius, address) VALUES (?,?,?,?,?)")
-                    ->execute([sanitize($_POST['office_name']), $_POST['office_latitude'], $_POST['office_longitude'], (int)$_POST['office_radius'], sanitize($_POST['office_address'] ?? '')]);
+                    ->execute($values);
             }
             $message = 'Office settings saved';
         } catch (Exception $e) {
@@ -90,7 +102,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-try { $office = $pdo->query("SELECT * FROM office_locations WHERE id = 1")->fetch(); } catch (Exception $e) { $office = null; }
+// The app measures against the first active row, not against id 1. Editing
+// a hardcoded id meant the admin could be changing a row nobody uses.
+try { $office = $pdo->query("SELECT * FROM office_locations WHERE status = 1 ORDER BY id LIMIT 1")->fetch(); } catch (Exception $e) { $office = null; }
 $settings = [];
 try {
     $stmt = $pdo->query("SELECT setting_key, setting_value FROM settings");

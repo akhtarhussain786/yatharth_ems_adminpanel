@@ -67,7 +67,9 @@ class AuthMiddleware {
             http_response_code(401);
             echo json_encode([
                 'success' => false,
-                'message' => 'You have been signed out because this account was used on another device.',
+                'message' => self::$rejectedOwnLogout
+                    ? 'You have been signed out. Please log in again.'
+                    : 'You have been signed out because this account was used on another device.',
                 'force_logout' => true,
             ]);
             exit;
@@ -110,6 +112,9 @@ class AuthMiddleware {
         return $payload;
     }
 
+    /** True when the rejected token is one the user logged out of themselves. */
+    private static $rejectedOwnLogout = false;
+
     /**
      * True when this exact token is the user's live session.
      *
@@ -136,9 +141,17 @@ class AuthMiddleware {
             // Checking for *any* row rather than any *active* row matters: after
             // logout every row is inactive, and treating that as "never had a
             // session" would leave the token working after signing out.
-            $any = $db->prepare("SELECT id FROM user_sessions WHERE user_id = ? LIMIT 1");
+            $any = $db->prepare("SELECT session_token, logout_time FROM user_sessions
+                                 WHERE user_id = ? ORDER BY id DESC LIMIT 1");
             $any->execute([$userId]);
-            return $any->fetch() ? false : true;
+            $last = $any->fetch();
+            if (!$last) return true;
+
+            // Both cases end the session, but they are not the same thing to
+            // the person holding the phone: signing out yourself should not be
+            // reported as somebody else taking your account.
+            self::$rejectedOwnLogout = ($last['session_token'] === $token);
+            return false;
         } catch (Throwable $e) {
             error_log('sessionIsCurrent: ' . $e->getMessage());
             return true;

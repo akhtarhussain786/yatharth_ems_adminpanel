@@ -958,6 +958,43 @@ function runSchemaMigrations($db)
     // members, so the insert truncated and the whole approval rolled back.
     // leave_requests.leave_type and leave_balances.leave_type are already
     // VARCHAR; this makes the third column in that chain agree with them.
+    // The create-lead form collects a full address, an alternate number, a
+    // follow-up type and a next action, and none of it had anywhere to go —
+    // createLead() never read those keys, so the employee typed them and they
+    // were dropped on the floor. follow_up_date and status already had columns
+    // and were being ignored just as quietly.
+    // Leads created before createLead() stopped falling back to the user id.
+    // employees.id and users.id are offset by one on this database, so every
+    // employee's user id is some other employee's id: a lead saved that way
+    // either vanished from its creator's list or turned up in a colleague's.
+    // Only rows with no employee_id are touched, and only where the user id
+    // resolves to exactly one employee, so nothing is guessed.
+    SchemaGuard::ensure($db, 'leads_created_by_repair_v1', function ($db) {
+        try {
+            $db->exec(
+                "UPDATE leads l
+                 JOIN employees e ON e.user_id = l.created_by
+                 SET l.employee_id = e.id, l.created_by = e.id
+                 WHERE l.employee_id IS NULL
+                   AND l.created_by IS NOT NULL
+                   AND l.created_by NOT IN (SELECT id FROM (SELECT id FROM employees) AS x)"
+            );
+        } catch (Throwable $e) {
+            error_log('leads_created_by_repair_v1: ' . $e->getMessage());
+        }
+    });
+
+    SchemaGuard::ensure($db, 'leads_form_fields_v1', function ($db) {
+        SchemaGuard::addColumns($db, 'leads', [
+            'address'          => "TEXT DEFAULT NULL",
+            'state'            => "VARCHAR(100) DEFAULT NULL",
+            'pincode'          => "VARCHAR(20) DEFAULT NULL",
+            'alternate_mobile' => "VARCHAR(20) DEFAULT NULL",
+            'follow_up_type'   => "VARCHAR(50) DEFAULT NULL",
+            'next_action'      => "TEXT DEFAULT NULL",
+        ]);
+    });
+
     SchemaGuard::ensure($db, 'attendance_leave_type_varchar_v1', function ($db) {
         SchemaGuard::modifyColumn($db, 'attendance', 'leave_type', "VARCHAR(50) DEFAULT NULL");
     });
@@ -1022,10 +1059,63 @@ function runSchemaMigrations($db)
             }
         }
     });
+    // The admin panel and the app both offer an "Urgent" priority, and the
+    // task board sends the canonical 'in_progress'. The ENUMs listed only
+    // low/medium/high (and normal/high/urgent for notices), so every one of
+    // those choices died on a 1265 "Data truncated" fatal instead of saving.
+    // Widened rather than trimmed: the two front-ends are the spec here, and
+    // a VARCHAR cannot truncate a future value the way an ENUM does.
+    SchemaGuard::ensure($db, 'priority_vocabulary_varchar_v1', function ($db) {
+        SchemaGuard::modifyColumn($db, 'tasks', 'priority', "VARCHAR(20) DEFAULT 'medium'");
+        SchemaGuard::modifyColumn($db, 'leads', 'priority', "VARCHAR(20) DEFAULT 'medium'");
+        SchemaGuard::modifyColumn($db, 'notices', 'priority', "VARCHAR(20) DEFAULT 'normal'");
+        SchemaGuard::modifyColumn($db, 'tasks', 'status', "VARCHAR(20) DEFAULT 'pending'");
+    });
 
-    // ---------------------------------------------------------------
-    // RBAC: Roles and HR Executive full marketing view permissions
-    // ---------------------------------------------------------------
+    // campaigns carries both a legacy NOT NULL `name` and the `campaign_name`
+    // every form actually fills in, so INSERTs failed with 1364 "Field 'name'
+    // doesn't have a default value" — campaign creation was impossible from
+    // the panel and from the app. The writers now populate both columns; this
+    // relaxes the legacy column so no other path can fatal on it either.
+    // The status ENUM held only active/inactive while the edit form offers the
+    // full planning/paused/completed/cancelled lifecycle.
+    SchemaGuard::ensure($db, 'campaigns_lifecycle_v1', function ($db) {
+        SchemaGuard::modifyColumn($db, 'campaigns', 'name', "VARCHAR(255) NULL");
+        SchemaGuard::modifyColumn($db, 'campaigns', 'status', "VARCHAR(20) DEFAULT 'active'");
+        try {
+            $db->exec("UPDATE campaigns SET name = campaign_name
+                       WHERE (name IS NULL OR name = '') AND campaign_name IS NOT NULL");
+        } catch (Throwable $e) {
+            // Column set differs on an older copy; the writers still fill both.
+        }
+    });
+
+    // expense_categories was empty and no page anywhere creates a row, so the
+    // Category dropdown on the expense form only ever showed "Select" and every
+    // expense was saved uncategorised. Seeds the standard set, but only when the
+    // table is genuinely empty, so an existing list is never disturbed.
+    SchemaGuard::ensure($db, 'expense_categories_seed_v1', function ($db) {
+        try {
+            $count = (int) $db->query("SELECT COUNT(*) FROM expense_categories")->fetchColumn();
+            if ($count > 0) {
+                return;
+            }
+            $stmt = $db->prepare("INSERT INTO expense_categories (name, status) VALUES (?, 1)");
+            foreach ([
+                'Travel', 'Fuel', 'Food & Refreshment', 'Accommodation',
+                'Office Supplies', 'Marketing', 'Communication',
+                'Repair & Maintenance', 'Training', 'Miscellaneous',
+            ] as $name) {
+                $stmt->execute([$name]);
+            }
+        } catch (Throwable $e) {
+            // Table absent on an older copy; the form degrades to "Select".
+        }
+    });
+
+    // Restored from main: seeds the roles and permissions rows the whole
+    // RBAC layer reads. Without it a role can exist with no permission rows,
+    // which is why some marketing staff could create leads and others could not.
     SchemaGuard::ensure($db, 'rbac_roles_permissions_v2', function ($db) {
         $roles = [
             ['name' => 'super_admin', 'description' => 'Super Admin - full system access'],
@@ -1159,5 +1249,3 @@ function runSchemaMigrations($db)
         $setPerms('marketing', $marketingExecPermissions);
     });
 }
-
-

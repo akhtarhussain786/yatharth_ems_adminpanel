@@ -11,7 +11,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['action'] ?? '') === 'create
     $budget = floatval($_POST['budget'] ?? 0);
     $start = $_POST['start_date'] ?? '';
     $end = $_POST['end_date'] ?? '';
-    $pdo->prepare("INSERT INTO campaigns (employee_id, campaign_name, platform, budget, start_date, end_date) VALUES (?,?,?,?,?,?)")->execute([$eid, $name, $platform, $budget, $start ?: null, $end ?: null]);
+    $pdo->prepare("INSERT INTO campaigns (employee_id, name, campaign_name, platform, budget, start_date, end_date) VALUES (?,?,?,?,?,?,?)")->execute([$eid, $name, $name, $platform, $budget, $start ?: null, $end ?: null]);
     $_SESSION['flash'] = 'Campaign created';
     redirect('campaigns.php');
 }
@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['action'] ?? '') === 'update
     $budget = floatval($_POST['budget'] ?? 0);
     $status = sanitize($_POST['status'] ?? 'planning');
     $results = sanitize($_POST['results'] ?? '');
-    $pdo->prepare("UPDATE campaigns SET campaign_name=?, platform=?, budget=?, status=?, results=? WHERE id=?")->execute([$name, $platform, $budget, $status, $results, $id]);
+    $pdo->prepare("UPDATE campaigns SET name=?, campaign_name=?, platform=?, budget=?, status=?, results=? WHERE id=?")->execute([$name, $name, $platform, $budget, $status, $results, $id]);
     $_SESSION['flash'] = 'Campaign updated';
     redirect('campaigns.php');
 }

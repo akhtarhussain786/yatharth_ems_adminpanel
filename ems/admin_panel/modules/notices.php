@@ -126,7 +126,7 @@ require_once '../includes/header.php';
                         <td><?php echo sanitize($n['title']); ?></td>
                         <td><?php echo sanitize(substr($n['content'] ?? '', 0, 80)) . (strlen($n['content'] ?? '') > 80 ? '...' : ''); ?></td>
                         <td>
-                            <span class="badge bg-<?php echo $n['priority'] == 'urgent' ? 'danger' : ($n['priority'] == 'important' ? 'warning text-dark' : 'info'); ?>">
+                            <span class="badge bg-<?php echo strtolower($n['priority'] ?? '') == 'urgent' ? 'danger' : (strtolower($n['priority'] ?? '') == 'high' ? 'warning text-dark' : 'info'); ?>">
                                 <?php echo ucfirst($n['priority']); ?>
                             </span>
                         </td>
@@ -170,7 +170,7 @@ require_once '../includes/header.php';
                             <label class="form-label">Priority</label>
                             <select name="priority" id="f_priority" class="form-select">
                                 <option value="normal">Normal</option>
-                                <option value="important">Important</option>
+                                <option value="high">Important</option>
                                 <option value="urgent">Urgent</option>
                             </select>
                         </div>

@@ -34,7 +34,7 @@ if (isset($_GET['delete'])) {
     redirect('tasks.php');
 }
 
-$tasks = $pdo->query("SELECT t.*, e.first_name, e.last_name, e.employee_code, d.name as department_name FROM tasks t JOIN employees e ON e.id = t.assigned_to LEFT JOIN departments d ON d.id = e.department_id ORDER BY FIELD(t.status,'Pending','In Progress','Completed','Cancelled'), t.due_date ASC")->fetchAll();
+$tasks = $pdo->query("SELECT t.*, e.first_name, e.last_name, e.employee_code, d.name as department_name FROM tasks t JOIN employees e ON e.id = t.assigned_to LEFT JOIN departments d ON d.id = e.department_id ORDER BY FIELD(t.status,'pending','in_progress','completed','cancelled'), t.due_date ASC")->fetchAll();
 $emps = $pdo->query("SELECT id, first_name, last_name, employee_code FROM employees WHERE status = 1 ORDER BY first_name")->fetchAll();
 
 require_once '../includes/header.php';
@@ -60,7 +60,7 @@ $flash = $_SESSION['flash'] ?? ''; unset($_SESSION['flash']);
                         <td><?php echo sanitize($t['title']); ?></td>
                         <td><span class="badge bg-<?php echo $t['priority'] == 'urgent' ? 'danger' : ($t['priority'] == 'high' ? 'warning' : ($t['priority'] == 'medium' ? 'info' : 'secondary')); ?>"><?php echo ucfirst($t['priority']); ?></span></td>
                         <td><?php echo $t['due_date'] ?? '-'; ?></td>
-                        <td><span class="badge bg-<?php echo $t['status'] == 'Completed' ? 'success' : ($t['status'] == 'In Progress' ? 'primary' : ($t['status'] == 'Cancelled' ? 'secondary' : 'warning')); ?>"><?php echo $t['status']; ?></span></td>
+                        <td><?php $st = strtolower($t['status'] ?? 'pending'); ?><span class="badge bg-<?php echo $st == 'completed' ? 'success' : ($st == 'in_progress' ? 'primary' : ($st == 'cancelled' ? 'secondary' : 'warning')); ?>"><?php echo ucwords(str_replace('_', ' ', $st)); ?></span></td>
                         <td>
                             <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#editModal<?php echo $t['id']; ?>"><i class="fas fa-edit"></i></button>
                             <?php if (hasModuleAccess('tasks', 'can_delete')): ?>
@@ -101,8 +101,18 @@ $flash = $_SESSION['flash'] ?? ''; unset($_SESSION['flash']);
             <div class="modal-header"><h5 class="modal-title">Update Task</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
                 <p><strong><?php echo sanitize($t['title']); ?></strong> - <?php echo sanitize($t['first_name'] . ' ' . $t['last_name']); ?></p>
-                <div class="mb-2"><label class="form-label">Status</label><select name="status" class="form-select"><option value="Pending" <?php echo $t['status']=='Pending'?'selected':''; ?>>Pending</option><option value="In Progress" <?php echo $t['status']=='In Progress'?'selected':''; ?>>In Progress</option><option value="Completed" <?php echo $t['status']=='Completed'?'selected':''; ?>>Completed</option><option value="Cancelled" <?php echo $t['status']=='Cancelled'?'selected':''; ?>>Cancelled</option></select></div>
-                <div class="mb-2"><label class="form-label">Priority</label><select name="priority" class="form-select"><option value="low" <?php echo $t['priority']=='low'?'selected':''; ?>>Low</option><option value="medium" <?php echo $t['priority']=='medium'?'selected':''; ?>>Medium</option><option value="high" <?php echo $t['priority']=='high'?'selected':''; ?>>High</option><option value="urgent" <?php echo $t['priority']=='urgent'?'selected':''; ?>>Urgent</option></select></div>
+                <div class="mb-2"><label class="form-label">Status</label><select name="status" class="form-select"><?php
+                    $st = strtolower($t['status'] ?? 'pending');
+                    // The IT module puts 'approved' and 'correction' on this same
+                    // table. Neither is offered below, so without this the box
+                    // would fall back to Pending and saving would overwrite the
+                    // real status.
+                    if (!in_array($st, ['pending','in_progress','completed','cancelled'], true)) {
+                        echo '<option value="' . htmlspecialchars($st) . '" selected>'
+                           . htmlspecialchars(ucwords(str_replace('_', ' ', $st))) . '</option>';
+                    }
+                ?><option value="pending" <?php echo $st=='pending'?'selected':''; ?>>Pending</option><option value="in_progress" <?php echo $st=='in_progress'?'selected':''; ?>>In Progress</option><option value="completed" <?php echo $st=='completed'?'selected':''; ?>>Completed</option><option value="cancelled" <?php echo $st=='cancelled'?'selected':''; ?>>Cancelled</option></select></div>
+                <div class="mb-2"><label class="form-label">Priority</label><select name="priority" class="form-select"><option value="low" <?php echo strtolower($t['priority'] ?? '')=='low'?'selected':''; ?>>Low</option><option value="medium" <?php echo strtolower($t['priority'] ?? '')=='medium'?'selected':''; ?>>Medium</option><option value="high" <?php echo strtolower($t['priority'] ?? '')=='high'?'selected':''; ?>>High</option><option value="urgent" <?php echo strtolower($t['priority'] ?? '')=='urgent'?'selected':''; ?>>Urgent</option></select></div>
             </div>
             <div class="modal-footer"><button type="submit" class="btn btn-primary">Update</button></div>
         </div>

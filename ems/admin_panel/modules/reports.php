@@ -167,8 +167,11 @@ require_once '../includes/header.php';
     }
 
     // Fetch Holidays
-    $holStmt = $pdo->prepare("SELECT * FROM holidays WHERE (holiday_date BETWEEN ? AND ?) OR (start_date <= ? AND end_date >= ?)");
-    $holStmt->execute([$startDate, $endDate, $startDate, $endDate]);
+    // holidays has a single holiday_date; it has no start_date/end_date pair,
+    // so naming them made the whole report page fail with "Unknown column
+    // 'start_date'". The loop below already treats a holiday as one day.
+    $holStmt = $pdo->prepare("SELECT * FROM holidays WHERE holiday_date BETWEEN ? AND ?");
+    $holStmt->execute([$startDate, $endDate]);
     $holRows = $holStmt->fetchAll();
     $holidayMap = [];
     foreach ($holRows as $hr) {

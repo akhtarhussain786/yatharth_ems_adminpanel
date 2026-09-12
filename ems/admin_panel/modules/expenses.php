@@ -8,7 +8,17 @@ $message = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = $_POST['action'];
     $employee_id = (int)$_POST['employee_id'];
-    $expense_category_id = $_POST['expense_category_id'] ? (int)$_POST['expense_category_id'] : null;
+    $expense_category_id = !empty($_POST['expense_category_id']) ? (int)$_POST['expense_category_id'] : null;
+    // The column carries a foreign key, so an id that no longer exists (a stale
+    // form, a deleted category) would surface as a raw 1452 fatal. Fall back to
+    // "uncategorised" instead, which the nullable column accepts.
+    if ($expense_category_id !== null) {
+        $chk = $pdo->prepare("SELECT id FROM expense_categories WHERE id = ?");
+        $chk->execute([$expense_category_id]);
+        if (!$chk->fetchColumn()) {
+            $expense_category_id = null;
+        }
+    }
     $amount = $_POST['amount'];
     $expense_date = $_POST['expense_date'];
     $description = sanitize($_POST['description'] ?? '');
