@@ -31,7 +31,14 @@ function runSchemaMigrations($db)
             'created_by'    => 'INT DEFAULT NULL',
             'assigned_to'   => 'INT DEFAULT NULL',
             'assigned_by'   => 'INT DEFAULT NULL',
+            'lead_type'     => "VARCHAR(50) DEFAULT 'lead'",
             'assigned_sales' => 'INT DEFAULT NULL',
+        ]);
+    });
+
+    SchemaGuard::ensure($db, 'leads_lead_type_column_v1', function ($db) {
+        SchemaGuard::addColumns($db, 'leads', [
+            'lead_type' => "VARCHAR(50) DEFAULT 'lead'",
         ]);
     });
 

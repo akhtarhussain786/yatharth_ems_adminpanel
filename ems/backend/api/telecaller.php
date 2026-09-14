@@ -9,6 +9,8 @@ function handleTelecallerRequest($action, $param) {
             return telecallerDashboard($db, $auth);
         case 'leads':
             return telecallerLeads($db, $auth, $data);
+        case 'create-inquiry':
+            return createInquiry($db, $auth, $data);
         case 'call-log':
             return createCallLog($db, $auth, $data);
         case 'follow-up':
@@ -56,18 +58,99 @@ function telecallerDashboard($db, $auth) {
 function telecallerLeads($db, $auth, $data) {
     $eid = $auth['employee_id'];
     $status = $data['status'] ?? '';
-    $search = $data['search'] ?? '';
+    $priority = $data['priority'] ?? '';
+    $source = $data['source'] ?? '';
+    $search = trim($data['search'] ?? '');
+    $followUpFilter = $data['follow_up_filter'] ?? '';
+    $sortBy = $data['sort_by'] ?? 'default';
 
-    $sql = "SELECT l.* FROM leads l WHERE (l.assigned_to = ? OR l.employee_id = ? OR l.created_by = ?)";
+    $sql = "SELECT l.*, cr.first_name as creator_first, cr.last_name as creator_last FROM leads l LEFT JOIN employees cr ON cr.id = l.employee_id WHERE (l.assigned_to = ? OR l.employee_id = ? OR l.created_by = ?)";
     $params = [$eid, $eid, $eid];
 
-    if ($status) { $sql .= " AND l.status = ?"; $params[] = $status; }
-    if ($search) { $sql .= " AND (l.customer_name LIKE ? OR l.customer_phone LIKE ? OR l.mobile LIKE ?)"; $params[] = "%$search%"; $params[] = "%$search%"; $params[] = "%$search%"; }
+    if ($status !== '') { $sql .= " AND l.status = ?"; $params[] = $status; }
+    if ($priority !== '') { $sql .= " AND l.priority = ?"; $params[] = $priority; }
+    if ($source !== '') { $sql .= " AND (l.source = ? OR l.lead_source = ?)"; $params[] = $source; $params[] = $source; }
+    
+    // Follow-up condition filters
+    if ($followUpFilter === 'today') {
+        $sql .= " AND DATE(l.follow_up_date) = CURDATE()";
+    } elseif ($followUpFilter === 'upcoming') {
+        $sql .= " AND DATE(l.follow_up_date) > CURDATE()";
+    } elseif ($followUpFilter === 'overdue') {
+        $sql .= " AND DATE(l.follow_up_date) < CURDATE() AND l.follow_up_date IS NOT NULL";
+    } elseif ($followUpFilter === 'no_followup') {
+        $sql .= " AND (l.follow_up_date IS NULL OR l.follow_up_date = '')";
+    }
 
-    $sql .= " ORDER BY FIELD(l.status,'new','follow_up','interested','calling','connected','busy','no_answer','qualified','not_interested','wrong_number','duplicate','lost','won') ASC, l.created_at DESC";
+    // Date range filters
+    if (!empty($data['from_date'])) {
+        $sql .= " AND DATE(l.created_at) >= ?";
+        $params[] = $data['from_date'];
+    }
+    if (!empty($data['to_date'])) {
+        $sql .= " AND DATE(l.created_at) <= ?";
+        $params[] = $data['to_date'];
+    }
+
+    // Multi-field search
+    if ($search !== '') {
+        $sTerm = "%$search%";
+        $sql .= " AND (l.customer_name LIKE ? OR l.customer_phone LIKE ? OR l.mobile LIKE ? OR l.email LIKE ? OR l.company_name LIKE ? OR l.city LIKE ? OR l.requirement LIKE ? OR l.notes LIKE ? OR l.source LIKE ?)";
+        $params = array_merge($params, [$sTerm, $sTerm, $sTerm, $sTerm, $sTerm, $sTerm, $sTerm, $sTerm, $sTerm]);
+    }
+
+    // Sort order
+    if ($sortBy === 'newest') {
+        $sql .= " ORDER BY l.created_at DESC";
+    } elseif ($sortBy === 'oldest') {
+        $sql .= " ORDER BY l.created_at ASC";
+    } elseif ($sortBy === 'follow_up_asc') {
+        $sql .= " ORDER BY (l.follow_up_date IS NULL OR l.follow_up_date = '') ASC, l.follow_up_date ASC, l.created_at DESC";
+    } elseif ($sortBy === 'follow_up_desc') {
+        $sql .= " ORDER BY (l.follow_up_date IS NULL OR l.follow_up_date = '') ASC, l.follow_up_date DESC, l.created_at DESC";
+    } elseif ($sortBy === 'name_asc') {
+        $sql .= " ORDER BY l.customer_name ASC";
+    } else {
+        $sql .= " ORDER BY FIELD(l.status,'new','follow_up','interested','calling','connected','busy','no_answer','qualified','not_interested','wrong_number','duplicate','lost','won') ASC, l.created_at DESC";
+    }
+
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
     return ['success' => true, 'data' => $stmt->fetchAll()];
+}
+
+function createInquiry($db, $auth, $data) {
+    $eid = $auth['employee_id'];
+    $customerName = Validator::sanitize($data['customer_name'] ?? '');
+    $phone = Validator::sanitize($data['phone'] ?? $data['customer_phone'] ?? '');
+    $email = Validator::sanitize($data['email'] ?? '');
+    $requirement = Validator::sanitize($data['requirement'] ?? '');
+    $city = Validator::sanitize($data['city'] ?? '');
+    $source = Validator::sanitize($data['source'] ?? 'Call');
+    $priority = Validator::sanitize($data['priority'] ?? 'medium');
+    $notes = Validator::sanitize($data['notes'] ?? '');
+    $followUpDate = trim((string) ($data['follow_up_date'] ?? ''));
+    $followUpDate = $followUpDate !== '' ? $followUpDate : null;
+    $status = $followUpDate ? 'follow_up' : 'new';
+
+    if (!$customerName) return ['success' => false, 'message' => 'Customer name is required'];
+    if (!$phone) return ['success' => false, 'message' => 'Phone is required'];
+
+    $stmt = $db->prepare("INSERT INTO leads (customer_name, first_name, customer_phone, mobile, email, requirement, city, source, lead_source, priority, notes, follow_up_date, status, employee_id, created_by, assigned_to, lead_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inquiry')");
+    $stmt->execute([
+        $customerName, $customerName, $phone, $phone, $email,
+        $requirement, $city, $source, $source, $priority, $notes,
+        $followUpDate, $status, $eid, $eid, $eid
+    ]);
+
+    $leadId = $db->lastInsertId();
+
+    if ($followUpDate) {
+        $db->prepare("INSERT INTO follow_ups (lead_id, employee_id, follow_up_date, notes, status) VALUES (?, ?, ?, ?, 'pending')")
+           ->execute([$leadId, $eid, $followUpDate, $notes ?: 'Initial Inquiry Follow-up']);
+    }
+
+    return ['success' => true, 'message' => 'Inquiry created successfully', 'id' => $leadId];
 }
 
 function createCallLog($db, $auth, $data) {

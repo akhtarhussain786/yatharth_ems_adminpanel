@@ -236,11 +236,20 @@ function getLeads($db, $auth, $data) {
         $params[] = $data['date_to'];
     }
 
-    // Search query
+    // Lead Type filter (lead / inquiry)
+    if (isset($data['lead_type']) && $data['lead_type'] !== '') {
+        $sql .= " AND l.lead_type = ?";
+        $params[] = $data['lead_type'];
+    } elseif (isset($data['type']) && $data['type'] !== '') {
+        $sql .= " AND l.lead_type = ?";
+        $params[] = $data['type'];
+    }
+
+    // Search query - across all available fields
     if (isset($data['search']) && trim($data['search']) !== '') {
         $search = '%' . trim($data['search']) . '%';
-        $sql .= " AND (l.customer_name LIKE ? OR l.customer_phone LIKE ? OR l.mobile LIKE ? OR l.email LIKE ? OR l.company_name LIKE ? OR l.city LIKE ?)";
-        $params = array_merge($params, [$search, $search, $search, $search, $search, $search]);
+        $sql .= " AND (l.customer_name LIKE ? OR l.customer_phone LIKE ? OR l.mobile LIKE ? OR l.email LIKE ? OR l.company_name LIKE ? OR l.city LIKE ? OR l.requirement LIKE ? OR l.notes LIKE ? OR l.source LIKE ? OR l.campaign_name LIKE ?)";
+        $params = array_merge($params, [$search, $search, $search, $search, $search, $search, $search, $search, $search, $search]);
     }
 
     // Scoping check: Admins can filter by specific employee, non-admins are strictly locked to their own leads
@@ -307,6 +316,8 @@ function createLead($db, $auth, $data) {
     $budget = $data['budget'] ?? null;
     $priority = normaliseLeadPriority(Validator::sanitize($data['priority'] ?? 'medium'));
     $notes = Validator::sanitize($data['notes'] ?? '');
+    $leadType = Validator::sanitize($data['lead_type'] ?? $data['type'] ?? 'lead');
+    if (empty($leadType)) $leadType = 'lead';
 
     // The form collects these too. They used to be read nowhere, so an
     // employee filled in an address and a follow-up date and none of it was
@@ -324,7 +335,7 @@ function createLead($db, $auth, $data) {
     if (!$customerName) return ['success' => false, 'message' => 'Customer name is required'];
     if (!$phone) return ['success' => false, 'message' => 'Phone is required'];
 
-    $allowedSources = ['Facebook','Google','Instagram','Website','WhatsApp','Referral','Manual','Field Visit','Other'];
+    $allowedSources = ['Facebook','Google','Instagram','Website','WhatsApp','Referral','Manual','Field Visit','Other','Call','Inquiry','Walk-in'];
     if ($source && !in_array($source, $allowedSources)) $source = 'Other';
 
     $assignedTo = null;
@@ -334,14 +345,14 @@ function createLead($db, $auth, $data) {
         $assignedTo = autoAssignTelecaller($db);
     }
 
-    $stmt = $db->prepare("INSERT INTO leads (customer_name, first_name, last_name, customer_phone, mobile, email, customer_email, company_name, city, state, pincode, address, alternate_mobile, source, lead_source, campaign_name, requirement, budget, priority, notes, follow_up_date, follow_up_type, next_action, employee_id, created_by, assigned_to, assigned_by, status) VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt = $db->prepare("INSERT INTO leads (customer_name, first_name, last_name, customer_phone, mobile, email, customer_email, company_name, city, state, pincode, address, alternate_mobile, source, lead_source, campaign_name, requirement, budget, priority, notes, follow_up_date, follow_up_type, next_action, employee_id, created_by, assigned_to, assigned_by, status, lead_type) VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $stmt->execute([
         $customerName, $customerName, $phone, $phone, $email, $email,
         $companyName, $city, $state, $pincode, $address, $altPhone,
         $source, $source, $campaignName,
         $requirement, $budget, $priority, $notes,
         $followUpDate, $followUpType, $nextAction,
-        $eid, $createdById, $assignedTo, $assignedTo ? $auth['user_id'] : null, $status
+        $eid, $createdById, $assignedTo, $assignedTo ? $auth['user_id'] : null, $status, $leadType
     ]);
 
     $leadId = $db->lastInsertId();
@@ -359,24 +370,26 @@ function createLead($db, $auth, $data) {
         }
     }
 
+    $itemLabel = ($leadType === 'inquiry') ? 'Inquiry' : 'Lead';
+
     // 1. Notify assigned telecaller (if assigned and not self)
     if ($assignedTo && $assignedTo !== $eid) {
-        $stmt = $db->prepare("INSERT INTO notifications (user_id, title, message, type, link) VALUES ((SELECT user_id FROM employees WHERE id = ?), 'New Lead Assigned', CONCAT('Lead: ', ?, ' assigned to you'), 'lead', CONCAT('/leads/', ?))");
-        $stmt->execute([$assignedTo, $customerName, $leadId]);
+        $stmt = $db->prepare("INSERT INTO notifications (user_id, title, message, type, link) VALUES ((SELECT user_id FROM employees WHERE id = ?), ?, CONCAT(?, ': ', ?, ' assigned to you'), 'lead', CONCAT('/leads/', ?))");
+        $stmt->execute([$assignedTo, "New $itemLabel Assigned", $itemLabel, $customerName, $leadId]);
     }
 
     // 2. Notify all super_admin / admin roles about new lead creation
     try {
         $adminUsers = $db->query("SELECT id FROM users WHERE role_id IN (SELECT id FROM roles WHERE name IN ('super_admin','admin')) AND status = 1")->fetchAll();
-        $notifStmt = $db->prepare("INSERT INTO notifications (user_id, title, message, type, link, created_at) VALUES (?, 'New Lead Created', CONCAT(?, ' created by ', ?, ' (', ?, ')'), 'lead', CONCAT('/leads/', ?), NOW())");
+        $notifStmt = $db->prepare("INSERT INTO notifications (user_id, title, message, type, link, created_at) VALUES (?, ?, CONCAT(?, ' created by ', ?, ' (', ?, ')'), 'lead', CONCAT('/leads/', ?), NOW())");
         foreach ($adminUsers as $au) {
-            $notifStmt->execute([$au['id'], $customerName, $creatorName, $deptName, $leadId]);
+            $notifStmt->execute([$au['id'], "New $itemLabel Created", $customerName, $creatorName, $deptName, $leadId]);
         }
     } catch (Throwable $e) {
         error_log('Admin lead creation notification error: ' . $e->getMessage());
     }
 
-    return ['success' => true, 'message' => 'Lead created', 'id' => $leadId, 'assigned_to' => $assignedTo];
+    return ['success' => true, 'message' => "$itemLabel created successfully", 'id' => $leadId, 'assigned_to' => $assignedTo];
 }
 
 function updateLead($db, $auth, $data) {
@@ -396,7 +409,7 @@ function updateLead($db, $auth, $data) {
     $fields = ['customer_name','customer_phone','mobile','email','customer_email','company_name',
                'city','state','pincode','address','alternate_mobile','source','lead_source',
                'campaign_name','requirement','budget','priority','notes','status',
-               'follow_up_date','follow_up_type','next_action'];
+               'follow_up_date','follow_up_type','next_action','lead_type'];
     $updates = []; $params = [];
 
     // The app names it alt_phone; the column is alternate_mobile.
