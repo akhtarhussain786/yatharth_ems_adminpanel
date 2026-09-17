@@ -32,12 +32,90 @@ $now = date('Y-m-d H:i:s');
 $stats = [
     'date' => $today,
     'started_at' => $now,
+    'holiday_wishes' => [],
     'total_leads_due' => 0,
     'total_followups_due' => 0,
     'telecallers_notified' => 0,
     'skipped_already_sent' => 0,
     'details' => []
 ];
+
+// ============================================================
+// 0. Automated Holiday Wishes Broadcast to All Employees
+// ============================================================
+try {
+    $holStmt = $db->prepare("
+        SELECT id, title, description, type, holiday_date 
+        FROM holidays 
+        WHERE DATE(holiday_date) = ? 
+          AND type != 'weekly_off'
+    ");
+    $holStmt->execute([$today]);
+    $todayHolidays = $holStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($todayHolidays as $hol) {
+        $holTitle = trim($hol['title']);
+        $holDesc = trim($hol['description'] ?? '');
+        
+        // Deduplication: Check if holiday wish already sent today for this holiday
+        $checkHol = $db->prepare("
+            SELECT id FROM notifications 
+            WHERE type IN ('holiday', 'notice', 'announcement') 
+              AND title LIKE ? 
+              AND DATE(created_at) = ? 
+            LIMIT 1
+        ");
+        $checkHol->execute(["%$holTitle%", $today]);
+        if ($checkHol->fetch()) {
+            $stats['holiday_wishes'][] = [
+                'holiday' => $holTitle,
+                'status' => 'already_sent'
+            ];
+            continue;
+        }
+
+        // Prepare warm greeting message
+        $wishTitle = "🎉 Happy {$holTitle}! 🌸";
+        $wishBody = !empty($holDesc) 
+            ? "Warm wishes on the auspicious occasion of {$holTitle}! {$holDesc} (Today is an official holiday at Yatharth)."
+            : "Wishing you and your family a joyful, peaceful, and blessed {$holTitle}! (Today is an official holiday at Yatharth).";
+
+        // Insert broadcast notification into notifications table for all users
+        $notifHol = $db->prepare("
+            INSERT INTO notifications (title, message, type, send_to, link, is_read, created_at)
+            VALUES (?, ?, 'holiday', 'all', '/holidays', 0, NOW())
+        ");
+        $notifHol->execute([$wishTitle, $wishBody]);
+
+        // Send FCM Push notification to all employees
+        $fcmResult = null;
+        try {
+            $fcmResult = FCMHelper::sendToTopicOrGroup(
+                $db,
+                'all',
+                null,
+                $wishTitle,
+                $wishBody,
+                [
+                    'type' => 'holiday',
+                    'screen' => 'holidays',
+                    'holiday_date' => $today
+                ]
+            );
+        } catch (Throwable $e) {
+            error_log("FCM Holiday Wish Error: " . $e->getMessage());
+            $fcmResult = ['success' => false, 'error' => $e->getMessage()];
+        }
+
+        $stats['holiday_wishes'][] = [
+            'holiday' => $holTitle,
+            'status' => 'sent',
+            'fcm_result' => $fcmResult
+        ];
+    }
+} catch (Throwable $e) {
+    error_log("Cron Holiday Wishes Error: " . $e->getMessage());
+}
 
 // Map follow-up items per telecaller/user: user_id => [ 'user_name' => ..., 'items' => [...] ]
 $userFollowUps = [];
