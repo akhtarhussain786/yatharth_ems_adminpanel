@@ -319,17 +319,17 @@ try {
     $stmt = $pdo->prepare("
         SELECT 
             attendance_date,
-            COUNT(CASE WHEN status = 'present' THEN 1 END) as present,
-            COUNT(CASE WHEN status = 'late' THEN 1 END) as late
+            COUNT(CASE WHEN LOWER(status) = 'present' THEN 1 END) as present,
+            COUNT(CASE WHEN LOWER(status) = 'late' THEN 1 END) as late
         FROM attendance 
         WHERE attendance_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
         GROUP BY attendance_date 
         ORDER BY attendance_date ASC
     ");
     $stmt->execute();
-    $chartData = $stmt->fetchAll();
+    $chartRows = $stmt->fetchAll();
     
-    foreach ($chartData as $d) {
+    foreach ($chartRows as $d) {
         $chartLabels[] = date('d M', strtotime($d['attendance_date']));
         $chartPresent[] = (int)$d['present'];
         $chartLate[] = (int)$d['late'];
@@ -345,12 +345,12 @@ try {
     $stmt = $pdo->prepare("
         SELECT 
             DAYNAME(attendance_date) as dayname,
-            COUNT(CASE WHEN status = 'present' THEN 1 END) as present,
-            COUNT(CASE WHEN status = 'late' THEN 1 END) as late,
+            COUNT(CASE WHEN LOWER(status) = 'present' THEN 1 END) as present,
+            COUNT(CASE WHEN LOWER(status) = 'late' THEN 1 END) as late,
             COUNT(*) as total
         FROM attendance 
         WHERE attendance_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-        GROUP BY DAYOFWEEK(attendance_date)
+        GROUP BY DAYOFWEEK(attendance_date), DAYNAME(attendance_date)
         ORDER BY DAYOFWEEK(attendance_date)
     ");
     $stmt->execute();
@@ -371,8 +371,8 @@ try {
         SELECT 
             d.name as department,
             COUNT(e.id) as total,
-            COUNT(CASE WHEN a.status = 'present' THEN 1 END) as present,
-            COUNT(CASE WHEN a.status = 'late' THEN 1 END) as late
+            COUNT(CASE WHEN LOWER(a.status) = 'present' THEN 1 END) as present,
+            COUNT(CASE WHEN LOWER(a.status) = 'late' THEN 1 END) as late
         FROM departments d
         LEFT JOIN employees e ON e.department_id = d.id AND e.status = 1
         LEFT JOIN attendance a ON a.employee_id = e.id AND a.attendance_date = CURDATE()
@@ -385,6 +385,8 @@ try {
 } catch (Exception $e) {}
 
 $deptList = [];
+$deptChartLabels = [];
+$deptChartData = [];
 try {
     $stmt = $pdo->prepare("
         SELECT d.id, d.name, COUNT(e.id) as total
@@ -396,7 +398,28 @@ try {
     ");
     $stmt->execute();
     $deptList = $stmt->fetchAll();
+    foreach ($deptList as $dl) {
+        $deptChartLabels[] = $dl['name'];
+        $deptChartData[] = (int)$dl['total'];
+    }
 } catch (Exception $e) {}
+
+// Encode complete chart dataset for JS
+$chartDataForJs = [
+    'labels'        => $chartLabels,
+    'present'       => $chartPresent,
+    'late'          => $chartLate,
+    'presentCount'  => (int)($todayStats['present'] ?? 0),
+    'lateCount'     => (int)($todayStats['late'] ?? 0),
+    'absentCount'   => (int)($absent ?? 0),
+    'deptLabels'    => $deptChartLabels,
+    'deptData'      => $deptChartData,
+    'weeklyLabels'  => $weeklyLabels,
+    'weeklyPresent' => $weeklyPresent,
+    'weeklyAbsent'  => $weeklyAbsent,
+    'weeklyLate'    => $weeklyLate
+];
+$chartDataJson = json_encode($chartDataForJs, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 
 // ===== TODAY'S ATTENDANCE =====
 $todayAttendance = [];
