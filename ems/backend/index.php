@@ -177,6 +177,16 @@ try {
             require_once __DIR__ . '/api/roles.php';
             $response = handleRoleRequest($action, $param);
             break;
+        case 'cron':
+            $cronScript = str_replace('.php', '', $action);
+            $cronFile = __DIR__ . '/cron/' . basename($cronScript) . '.php';
+            if (file_exists($cronFile)) {
+                require_once $cronFile;
+                exit;
+            } else {
+                $response = ['success' => false, 'message' => 'Cron script not found'];
+            }
+            break;
         case 'app_update':
         case 'app-update':
             // Public by design — see the note in api/app_update.php.
