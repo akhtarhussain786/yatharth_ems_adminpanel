@@ -91,8 +91,23 @@ class FCMHelper {
 
         foreach ($candidates as $path) {
             if (!$path || !is_file($path) || !is_readable($path)) continue;
-            $decoded = json_decode((string) file_get_contents($path), true);
-            if (is_array($decoded) && !empty($decoded['private_key'])) return $decoded;
+            $content = @file_get_contents($path);
+            if (!$content) continue;
+            $decoded = json_decode($content, true);
+            if (is_array($decoded) && !empty($decoded['private_key']) && !empty($decoded['client_email'])) {
+                // Verify that the private key is parseable
+                $rawKey = $decoded['private_key'];
+                $cleanKey = str_replace(['\n', "\r\n"], "\n", $rawKey);
+                $pkey = @openssl_pkey_get_private($cleanKey);
+                if (!$pkey) {
+                    $body = str_replace(['-----BEGIN PRIVATE KEY-----', '-----END PRIVATE KEY-----', "\r", "\n", "\\n", " "], '', $rawKey);
+                    $pem = "-----BEGIN PRIVATE KEY-----\n" . chunk_split($body, 64, "\n") . "-----END PRIVATE KEY-----\n";
+                    $pkey = @openssl_pkey_get_private($pem);
+                }
+                if ($pkey) {
+                    return $decoded;
+                }
+            }
         }
 
         try {
@@ -101,13 +116,15 @@ class FCMHelper {
             $row = $stmt->fetch();
             if (!empty($row['setting_value'])) {
                 $decoded = json_decode($row['setting_value'], true);
-                if (is_array($decoded) && !empty($decoded['private_key'])) return $decoded;
+                if (is_array($decoded) && !empty($decoded['private_key']) && !empty($decoded['client_email'])) {
+                    return $decoded;
+                }
             }
         } catch (Exception $e) {
             error_log('loadServiceAccount: ' . $e->getMessage());
         }
 
-        error_log('FCM: no service-account credentials found. Place the JSON above the site root or in the settings table.');
+        error_log('FCM: no valid service-account credentials found.');
         return null;
     }
 
