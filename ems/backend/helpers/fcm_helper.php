@@ -72,6 +72,23 @@ class FCMHelper {
         $candidates[] = dirname(__DIR__, 4) . '/firebase_service_account.json';
         $candidates[] = __DIR__ . '/../config/firebase_service_account.json';
 
+        // Auto-discover any downloaded Firebase JSON files in config dir
+        $configDir = __DIR__ . '/../config';
+        if (is_dir($configDir)) {
+            $foundJson = glob($configDir . '/*firebase*.json');
+            if ($foundJson) {
+                foreach ($foundJson as $fj) {
+                    $candidates[] = $fj;
+                }
+            }
+            $allJson = glob($configDir . '/*.json');
+            if ($allJson) {
+                foreach ($allJson as $aj) {
+                    $candidates[] = $aj;
+                }
+            }
+        }
+
         foreach ($candidates as $path) {
             if (!$path || !is_file($path) || !is_readable($path)) continue;
             $decoded = json_decode((string) file_get_contents($path), true);
