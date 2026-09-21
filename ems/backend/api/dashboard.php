@@ -134,41 +134,52 @@ function getEmployeeDashboard($db, $auth) {
     $stmt->execute([$employeeId, $monthStart]);
     $monthlyStats = $stmt->fetch();
 
-    $role = $auth['role'];
+    $role = strtolower(trim($auth['role'] ?? ''));
     $roleSpecific = [];
 
-    if (in_array($role, ['digital_marketing_admin', 'marketing'])) {
-        $totalLeads = $db->prepare("SELECT COUNT(*) FROM leads WHERE employee_id = ?");
-        $totalLeads->execute([$employeeId]);
-        $todayLeads = $db->prepare("SELECT COUNT(*) FROM leads WHERE employee_id = ? AND DATE(created_at) = CURDATE()");
-        $todayLeads->execute([$employeeId]);
-        $monthLeads = $db->prepare("SELECT COUNT(*) FROM leads WHERE employee_id = ? AND YEAR(created_at) = YEAR(CURDATE()) AND MONTH(created_at) = MONTH(CURDATE())");
-        $monthLeads->execute([$employeeId]);
-        $wonLeads = $db->prepare("SELECT COUNT(*) FROM leads WHERE employee_id = ? AND status = 'won'");
-        $wonLeads->execute([$employeeId]);
+    if (in_array($role, ['super_admin', 'admin'], true)) {
+        $totalLeads = $db->query("SELECT COUNT(*) FROM leads");
+        $todayLeads = $db->query("SELECT COUNT(*) FROM leads WHERE DATE(created_at) = CURDATE()");
+        $monthLeads = $db->query("SELECT COUNT(*) FROM leads WHERE YEAR(created_at) = YEAR(CURDATE()) AND MONTH(created_at) = MONTH(CURDATE())");
+        $wonLeads = $db->query("SELECT COUNT(*) FROM leads WHERE status IN ('won', 'converted')");
         $roleSpecific = [
             'total_leads' => (int)$totalLeads->fetchColumn(),
             'today_leads' => (int)$todayLeads->fetchColumn(),
             'monthly_leads' => (int)$monthLeads->fetchColumn(),
             'converted_leads' => (int)$wonLeads->fetchColumn(),
         ];
-    } elseif (in_array($role, ['telecaller_admin', 'sales_admin'])) {
-        $assignedLeads = $db->prepare("SELECT COUNT(*) FROM leads WHERE assigned_to = ?");
-        $assignedLeads->execute([$employeeId]);
-        $todayCalls = $db->prepare("SELECT COUNT(*) FROM call_reports WHERE employee_id = ? AND call_date = CURDATE()");
+    } elseif (in_array($role, ['digital_marketing_admin', 'digital_marketing', 'marketing', 'marketing_executive'], true)) {
+        $totalLeads = $db->prepare("SELECT COUNT(*) FROM leads WHERE (employee_id = ? OR created_by = ?)");
+        $totalLeads->execute([$employeeId, $employeeId]);
+        $todayLeads = $db->prepare("SELECT COUNT(*) FROM leads WHERE (employee_id = ? OR created_by = ?) AND DATE(created_at) = CURDATE()");
+        $todayLeads->execute([$employeeId, $employeeId]);
+        $monthLeads = $db->prepare("SELECT COUNT(*) FROM leads WHERE (employee_id = ? OR created_by = ?) AND YEAR(created_at) = YEAR(CURDATE()) AND MONTH(created_at) = MONTH(CURDATE())");
+        $monthLeads->execute([$employeeId, $employeeId]);
+        $wonLeads = $db->prepare("SELECT COUNT(*) FROM leads WHERE (employee_id = ? OR created_by = ?) AND status IN ('won', 'converted')");
+        $wonLeads->execute([$employeeId, $employeeId]);
+        $roleSpecific = [
+            'total_leads' => (int)$totalLeads->fetchColumn(),
+            'today_leads' => (int)$todayLeads->fetchColumn(),
+            'monthly_leads' => (int)$monthLeads->fetchColumn(),
+            'converted_leads' => (int)$wonLeads->fetchColumn(),
+        ];
+    } elseif (in_array($role, ['telecaller', 'telecallers', 'telecaller_admin', 'counselor', 'counselors', 'sales', 'sales_admin', 'sales_executive'], true)) {
+        $assignedLeads = $db->prepare("SELECT COUNT(*) FROM leads WHERE (assigned_to = ? OR employee_id = ? OR created_by = ?)");
+        $assignedLeads->execute([$employeeId, $employeeId, $employeeId]);
+        $todayCalls = $db->prepare("SELECT COUNT(*) FROM call_reports WHERE employee_id = ? AND DATE(call_date) = CURDATE()");
         $todayCalls->execute([$employeeId]);
-        $pendingFollowUps = $db->prepare("SELECT COUNT(*) FROM follow_ups WHERE employee_id = ? AND status = 'pending' AND follow_up_date <= CURDATE()");
+        $pendingFollowUps = $db->prepare("SELECT COUNT(*) FROM follow_ups WHERE employee_id = ? AND status = 'pending' AND DATE(follow_up_date) <= CURDATE()");
         $pendingFollowUps->execute([$employeeId]);
-        $converted = $db->prepare("SELECT COUNT(*) FROM leads WHERE assigned_to = ? AND status = 'won'");
-        $converted->execute([$employeeId]);
+        $converted = $db->prepare("SELECT COUNT(*) FROM leads WHERE (assigned_to = ? OR employee_id = ? OR created_by = ?) AND status IN ('won', 'converted', 'qualified')");
+        $converted->execute([$employeeId, $employeeId, $employeeId]);
         $roleSpecific = [
             'assigned_leads' => (int)$assignedLeads->fetchColumn(),
             'today_calls' => (int)$todayCalls->fetchColumn(),
             'pending_followups' => (int)$pendingFollowUps->fetchColumn(),
             'converted_leads' => (int)$converted->fetchColumn(),
         ];
-    } elseif (in_array($role, ['hr_admin', 'hr'])) {
-        $pendingLeaves = $db->prepare("SELECT COUNT(*) FROM leave_requests WHERE status = 'Pending'");
+    } elseif (in_array($role, ['hr_admin', 'hr'], true)) {
+        $pendingLeaves = $db->prepare("SELECT COUNT(*) FROM leave_requests WHERE LOWER(status) = 'pending'");
         $pendingLeaves->execute();
         $roleSpecific = ['pending_leave_requests' => (int)$pendingLeaves->fetchColumn()];
     } elseif ($role === 'manager') {
