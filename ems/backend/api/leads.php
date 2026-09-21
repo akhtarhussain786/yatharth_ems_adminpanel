@@ -44,11 +44,13 @@ function normaliseLeadPriority($value, $fallback = 'medium') {
 function handleLeadRequest($action, $param) {
     $db = (new Database())->getConnection();
     $auth = AuthMiddleware::authenticate();
-    $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    $data = json_decode($GLOBALS['_RAW_INPUT'] ?? file_get_contents('php://input'), true) ?? $_POST;
 
     switch ($action) {
         case 'list':
             return getLeads($db, $auth, $data);
+        case 'creators':
+            return getLeadCreators($db, $auth);
         case 'my':
             return getMyLeads($db, $auth);
         case 'create':
@@ -252,30 +254,54 @@ function getLeads($db, $auth, $data) {
         $params = array_merge($params, [$search, $search, $search, $search, $search, $search, $search, $search, $search, $search]);
     }
 
-    // Scoping check: Admins can filter by specific employee, non-admins are strictly locked to their own leads
+    // Scoping check: Admins see global leads, non-admins are scoped to their assigned/created leads
     $scope = leadVisibilityScope($role, $eid);
     if ($scope) {
         $sql .= ' AND ' . $scope['sql'];
         $params = array_merge($params, $scope['params']);
-    } else {
-        // Admin optional creator/employee filter
-        if (isset($data['employee_id']) && $data['employee_id'] !== '') {
-            $empFilter = intval($data['employee_id']);
-            $sql .= " AND (l.employee_id = ? OR l.created_by = ?)";
-            $params[] = $empFilter;
-            $params[] = $empFilter;
-        } elseif (isset($data['creator_id']) && $data['creator_id'] !== '') {
-            $creatorFilter = intval($data['creator_id']);
-            $sql .= " AND (l.employee_id = ? OR l.created_by = ?)";
-            $params[] = $creatorFilter;
-            $params[] = $creatorFilter;
-        }
+    }
+
+    // Created By / Creator filter (applicable for both admin & scoped users)
+    if (isset($data['created_by']) && $data['created_by'] !== '') {
+        $creatorFilter = intval($data['created_by']);
+        $sql .= " AND (l.employee_id = ? OR l.created_by = ?)";
+        $params[] = $creatorFilter;
+        $params[] = $creatorFilter;
+    } elseif (isset($data['creator_id']) && $data['creator_id'] !== '') {
+        $creatorFilter = intval($data['creator_id']);
+        $sql .= " AND (l.employee_id = ? OR l.created_by = ?)";
+        $params[] = $creatorFilter;
+        $params[] = $creatorFilter;
+    } elseif (isset($data['employee_id']) && $data['employee_id'] !== '') {
+        $empFilter = intval($data['employee_id']);
+        $sql .= " AND (l.employee_id = ? OR l.created_by = ?)";
+        $params[] = $empFilter;
+        $params[] = $empFilter;
     }
 
     $sql .= " ORDER BY l.created_at DESC";
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
     return ['success' => true, 'data' => $stmt->fetchAll()];
+}
+
+function getLeadCreators($db, $auth) {
+    // Return all distinct creators who have created leads
+    $stmt = $db->query("
+        SELECT DISTINCT 
+            e.id, 
+            CONCAT(e.first_name, ' ', COALESCE(e.last_name, '')) as name,
+            e.employee_code,
+            COALESCE(r.name, '') as role
+        FROM employees e
+        JOIN leads l ON (l.created_by = e.id OR l.employee_id = e.id)
+        LEFT JOIN users u ON u.id = e.user_id
+        LEFT JOIN roles r ON r.id = u.role_id
+        WHERE e.first_name IS NOT NULL AND e.first_name != ''
+        ORDER BY e.first_name ASC
+    ");
+    $creators = $stmt->fetchAll();
+    return ['success' => true, 'data' => $creators];
 }
 
 function getMyLeads($db, $auth) {

@@ -49,21 +49,58 @@ function getRolePermissions($db, $roleId) {
 
 function saveRolePermissions($db, $roleId) {
     if (!$roleId) return ['success' => false, 'message' => 'Role ID required'];
-    $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    $data = json_decode($GLOBALS['_RAW_INPUT'] ?? file_get_contents('php://input'), true) ?? $_POST;
+
+    $allModules = [
+        'employees', 'attendance', 'departments', 'designations', 'leaves',
+        'payroll', 'salary', 'reports', 'settings', 'daily_work_reports',
+        'tasks', 'leads', 'campaigns', 'call_reports', 'follow_ups',
+        'hr_activities', 'notices', 'documents', 'activity_logs', 'roles',
+        'permissions', 'users', 'marketing', 'telecaller', 'sales',
+        'travel', 'expenses', 'assets', 'meetings', 'notifications',
+        'downloads', 'help', 'accounts', 'it_team'
+    ];
 
     $db->prepare("DELETE FROM permissions WHERE role_id = ?")->execute([$roleId]);
 
-    $modules = $data['modules'] ?? [];
+    $rawModules = $data['modules'] ?? [];
     $stmt = $db->prepare("INSERT INTO permissions (role_id, module, can_view, can_create, can_edit, can_delete) VALUES (?, ?, ?, ?, ?, ?)");
 
-    foreach ($modules as $module) {
+    // Normalize format (handle both assoc array and indexed array of objects)
+    $normalized = [];
+    if (is_array($rawModules)) {
+        foreach ($rawModules as $key => $val) {
+            if (is_array($val) && isset($val['module'])) {
+                $normalized[$val['module']] = $val;
+            } elseif (is_string($key) && is_array($val)) {
+                $normalized[$key] = $val;
+            }
+        }
+    }
+
+    $processed = [];
+    foreach ($allModules as $mod) {
+        $m = $normalized[$mod] ?? [];
         $stmt->execute([
             $roleId,
-            $module['module'],
-            isset($module['can_view']) ? (int)$module['can_view'] : 0,
-            isset($module['can_create']) ? (int)$module['can_create'] : 0,
-            isset($module['can_edit']) ? (int)$module['can_edit'] : 0,
-            isset($module['can_delete']) ? (int)$module['can_delete'] : 0,
+            $mod,
+            !empty($m['can_view']) ? 1 : 0,
+            !empty($m['can_create']) ? 1 : 0,
+            !empty($m['can_edit']) ? 1 : 0,
+            !empty($m['can_delete']) ? 1 : 0,
+        ]);
+        $processed[$mod] = true;
+    }
+
+    foreach ($normalized as $mod => $m) {
+        if (isset($processed[$mod])) continue;
+        $stmt->execute([
+            $roleId,
+            $mod,
+            !empty($m['can_view']) ? 1 : 0,
+            !empty($m['can_create']) ? 1 : 0,
+            !empty($m['can_edit']) ? 1 : 0,
+            !empty($m['can_delete']) ? 1 : 0,
         ]);
     }
 
@@ -71,7 +108,7 @@ function saveRolePermissions($db, $roleId) {
 }
 
 function createRole($db) {
-    $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    $data = json_decode($GLOBALS['_RAW_INPUT'] ?? file_get_contents('php://input'), true) ?? $_POST;
     $name = Validator::sanitize($data['name'] ?? '');
     $description = Validator::sanitize($data['description'] ?? '');
 
@@ -90,7 +127,7 @@ function createRole($db) {
 
 function updateRole($db, $id) {
     if (!$id) return ['success' => false, 'message' => 'Role ID required'];
-    $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    $data = json_decode($GLOBALS['_RAW_INPUT'] ?? file_get_contents('php://input'), true) ?? $_POST;
 
     $name = Validator::sanitize($data['name'] ?? '');
     $description = Validator::sanitize($data['description'] ?? '');
@@ -128,6 +165,7 @@ function getModules($db) {
         ['module' => 'designations', 'label' => 'Designations'],
         ['module' => 'leaves', 'label' => 'Leaves'],
         ['module' => 'payroll', 'label' => 'Payroll'],
+        ['module' => 'salary', 'label' => 'Salary'],
         ['module' => 'reports', 'label' => 'Reports'],
         ['module' => 'settings', 'label' => 'Settings'],
         ['module' => 'daily_work_reports', 'label' => 'Work Reports'],
@@ -151,5 +189,10 @@ function getModules($db) {
         ['module' => 'assets', 'label' => 'Assets'],
         ['module' => 'meetings', 'label' => 'Meetings'],
         ['module' => 'notifications', 'label' => 'Notifications'],
+        ['module' => 'downloads', 'label' => 'Downloads'],
+        ['module' => 'help', 'label' => 'Help Desk'],
+        ['module' => 'accounts', 'label' => 'Accounts'],
+        ['module' => 'it_team', 'label' => 'IT Team'],
     ]];
 }
+

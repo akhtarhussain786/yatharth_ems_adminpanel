@@ -2,13 +2,15 @@
 function handleTelecallerRequest($action, $param) {
     $db = (new Database())->getConnection();
     $auth = AuthMiddleware::authenticate();
-    $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    $data = json_decode($GLOBALS['_RAW_INPUT'] ?? file_get_contents('php://input'), true) ?? $_POST;
 
     switch ($action) {
         case 'dashboard':
             return telecallerDashboard($db, $auth);
         case 'leads':
             return telecallerLeads($db, $auth, $data);
+        case 'creators':
+            return getTelecallerLeadCreators($db, $auth);
         case 'create-inquiry':
             return createInquiry($db, $auth, $data);
         case 'call-log':
@@ -24,10 +26,38 @@ function handleTelecallerRequest($action, $param) {
     }
 }
 
+function getTelecallerLeadCreators($db, $auth) {
+    $stmt = $db->query("
+        SELECT DISTINCT 
+            e.id, 
+            CONCAT(e.first_name, ' ', COALESCE(e.last_name, '')) as name,
+            e.employee_code,
+            COALESCE(r.name, '') as role
+        FROM employees e
+        JOIN leads l ON (l.created_by = e.id OR l.employee_id = e.id)
+        LEFT JOIN users u ON u.id = e.user_id
+        LEFT JOIN roles r ON r.id = u.role_id
+        WHERE e.first_name IS NOT NULL AND e.first_name != ''
+        ORDER BY e.first_name ASC
+    ");
+    return ['success' => true, 'data' => $stmt->fetchAll()];
+}
+
 function telecallerDashboard($db, $auth) {
     $eid = $auth['employee_id'];
 
-    $leads = $db->prepare("SELECT l.*, cr.first_name as creator_first, cr.last_name as creator_last FROM leads l LEFT JOIN employees cr ON cr.id = l.employee_id WHERE (l.assigned_to = ? OR l.employee_id = ? OR l.created_by = ?) ORDER BY FIELD(l.status, 'new','follow_up','interested','calling','connected','busy','no_answer','qualified','not_interested','wrong_number','duplicate','lost','won') ASC, l.created_at DESC");
+    $leads = $db->prepare("
+        SELECT l.*, 
+               cr.first_name as creator_first, cr.last_name as creator_last, cr.employee_code as creator_code,
+               ucr.username as creator_username,
+               d.name as creator_department
+        FROM leads l 
+        LEFT JOIN employees cr ON cr.id = COALESCE(l.created_by, l.employee_id)
+        LEFT JOIN users ucr ON ucr.id = l.created_by
+        LEFT JOIN departments d ON d.id = cr.department_id
+        WHERE (l.assigned_to = ? OR l.employee_id = ? OR l.created_by = ?) 
+        ORDER BY FIELD(l.status, 'new','follow_up','interested','calling','connected','busy','no_answer','qualified','not_interested','wrong_number','duplicate','lost','won') ASC, l.created_at DESC
+    ");
     $leads->execute([$eid, $eid, $eid]);
     $leadsData = $leads->fetchAll();
 
@@ -63,13 +93,27 @@ function telecallerLeads($db, $auth, $data) {
     $search = trim($data['search'] ?? '');
     $followUpFilter = $data['follow_up_filter'] ?? '';
     $sortBy = $data['sort_by'] ?? 'default';
+    $createdBy = $data['created_by'] ?? $data['creator_id'] ?? '';
 
-    $sql = "SELECT l.*, cr.first_name as creator_first, cr.last_name as creator_last FROM leads l LEFT JOIN employees cr ON cr.id = l.employee_id WHERE (l.assigned_to = ? OR l.employee_id = ? OR l.created_by = ?)";
+    $sql = "SELECT l.*, 
+                   cr.first_name as creator_first, cr.last_name as creator_last, cr.employee_code as creator_code,
+                   ucr.username as creator_username,
+                   d.name as creator_department
+            FROM leads l 
+            LEFT JOIN employees cr ON cr.id = COALESCE(l.created_by, l.employee_id)
+            LEFT JOIN users ucr ON ucr.id = l.created_by
+            LEFT JOIN departments d ON d.id = cr.department_id
+            WHERE (l.assigned_to = ? OR l.employee_id = ? OR l.created_by = ?)";
     $params = [$eid, $eid, $eid];
 
     if ($status !== '') { $sql .= " AND l.status = ?"; $params[] = $status; }
     if ($priority !== '') { $sql .= " AND l.priority = ?"; $params[] = $priority; }
     if ($source !== '') { $sql .= " AND (l.source = ? OR l.lead_source = ?)"; $params[] = $source; $params[] = $source; }
+    if ($createdBy !== '') {
+        $sql .= " AND (l.employee_id = ? OR l.created_by = ?)";
+        $params[] = intval($createdBy);
+        $params[] = intval($createdBy);
+    }
     
     // Follow-up condition filters
     if ($followUpFilter === 'today') {
@@ -78,8 +122,10 @@ function telecallerLeads($db, $auth, $data) {
         $sql .= " AND DATE(l.follow_up_date) > CURDATE()";
     } elseif ($followUpFilter === 'overdue') {
         $sql .= " AND DATE(l.follow_up_date) < CURDATE() AND l.follow_up_date IS NOT NULL";
-    } elseif ($followUpFilter === 'no_followup') {
+    } elseif ($followUpFilter === 'no_followup' || $followUpFilter === 'no_follow_up') {
         $sql .= " AND (l.follow_up_date IS NULL OR l.follow_up_date = '')";
+    } elseif ($followUpFilter === 'has_followup' || $followUpFilter === 'has_follow_up') {
+        $sql .= " AND (l.follow_up_date IS NOT NULL AND l.follow_up_date != '' AND l.follow_up_date != '0000-00-00')";
     }
 
     // Date range filters
@@ -95,8 +141,8 @@ function telecallerLeads($db, $auth, $data) {
     // Multi-field search
     if ($search !== '') {
         $sTerm = "%$search%";
-        $sql .= " AND (l.customer_name LIKE ? OR l.customer_phone LIKE ? OR l.mobile LIKE ? OR l.email LIKE ? OR l.company_name LIKE ? OR l.city LIKE ? OR l.requirement LIKE ? OR l.notes LIKE ? OR l.source LIKE ?)";
-        $params = array_merge($params, [$sTerm, $sTerm, $sTerm, $sTerm, $sTerm, $sTerm, $sTerm, $sTerm, $sTerm]);
+        $sql .= " AND (l.customer_name LIKE ? OR l.customer_phone LIKE ? OR l.mobile LIKE ? OR l.email LIKE ? OR l.company_name LIKE ? OR l.city LIKE ? OR l.requirement LIKE ? OR l.notes LIKE ? OR l.source LIKE ? OR cr.first_name LIKE ? OR cr.last_name LIKE ? OR cr.employee_code LIKE ?)";
+        $params = array_merge($params, [$sTerm, $sTerm, $sTerm, $sTerm, $sTerm, $sTerm, $sTerm, $sTerm, $sTerm, $sTerm, $sTerm, $sTerm]);
     }
 
     // Sort order
@@ -105,9 +151,9 @@ function telecallerLeads($db, $auth, $data) {
     } elseif ($sortBy === 'oldest') {
         $sql .= " ORDER BY l.created_at ASC";
     } elseif ($sortBy === 'follow_up_asc') {
-        $sql .= " ORDER BY (l.follow_up_date IS NULL OR l.follow_up_date = '') ASC, l.follow_up_date ASC, l.created_at DESC";
+        $sql .= " ORDER BY (l.follow_up_date IS NULL OR l.follow_up_date = '' OR l.follow_up_date = '0000-00-00') ASC, l.follow_up_date ASC, l.created_at DESC";
     } elseif ($sortBy === 'follow_up_desc') {
-        $sql .= " ORDER BY (l.follow_up_date IS NULL OR l.follow_up_date = '') ASC, l.follow_up_date DESC, l.created_at DESC";
+        $sql .= " ORDER BY (l.follow_up_date IS NULL OR l.follow_up_date = '' OR l.follow_up_date = '0000-00-00') ASC, l.follow_up_date DESC, l.created_at DESC";
     } elseif ($sortBy === 'name_asc') {
         $sql .= " ORDER BY l.customer_name ASC";
     } else {

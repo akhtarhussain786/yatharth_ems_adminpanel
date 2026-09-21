@@ -5,6 +5,53 @@ requireModuleAccess('roles');
 
 $message = '';
 
+$allModules = [
+    'employees', 'attendance', 'departments', 'designations', 'leaves',
+    'payroll', 'salary', 'reports', 'settings', 'daily_work_reports',
+    'tasks', 'leads', 'campaigns', 'call_reports', 'follow_ups',
+    'hr_activities', 'notices', 'documents', 'activity_logs', 'roles',
+    'permissions', 'users', 'marketing', 'telecaller', 'sales',
+    'travel', 'expenses', 'assets', 'meetings', 'notifications',
+    'downloads', 'help', 'accounts', 'it_team'
+];
+
+$moduleLabels = [
+    'employees' => 'Employees',
+    'attendance' => 'Attendance',
+    'departments' => 'Departments',
+    'designations' => 'Designations',
+    'leaves' => 'Leaves',
+    'payroll' => 'Payroll',
+    'salary' => 'Salary',
+    'reports' => 'Reports',
+    'settings' => 'Settings',
+    'daily_work_reports' => 'Work Reports',
+    'tasks' => 'Tasks',
+    'leads' => 'Leads',
+    'campaigns' => 'Campaigns',
+    'call_reports' => 'Call Reports',
+    'follow_ups' => 'Follow Ups',
+    'hr_activities' => 'HR Activities',
+    'notices' => 'Notices',
+    'documents' => 'Documents',
+    'activity_logs' => 'Activity Logs',
+    'roles' => 'Roles',
+    'permissions' => 'Permissions',
+    'users' => 'Users',
+    'marketing' => 'Marketing',
+    'telecaller' => 'Telecaller',
+    'sales' => 'Sales',
+    'travel' => 'Travel',
+    'expenses' => 'Expenses',
+    'assets' => 'Assets',
+    'meetings' => 'Meetings',
+    'notifications' => 'Notifications',
+    'downloads' => 'Downloads',
+    'help' => 'Help Desk',
+    'accounts' => 'Accounts',
+    'it_team' => 'IT Team',
+];
+
 // Handle AJAX: save permissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_permissions') {
     header('Content-Type: application/json');
@@ -14,7 +61,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     try {
         $pdo->prepare("DELETE FROM permissions WHERE role_id = ?")->execute([$roleId]);
         $stmt = $pdo->prepare("INSERT INTO permissions (role_id, module, can_view, can_create, can_edit, can_delete) VALUES (?, ?, ?, ?, ?, ?)");
+        
+        $processed = [];
+        foreach ($allModules as $mod) {
+            $perms = $modules[$mod] ?? [];
+            $canView = isset($perms['can_view']) ? 1 : 0;
+            $canCreate = isset($perms['can_create']) ? 1 : 0;
+            $canEdit = isset($perms['can_edit']) ? 1 : 0;
+            $canDelete = isset($perms['can_delete']) ? 1 : 0;
+            $stmt->execute([$roleId, $mod, $canView, $canCreate, $canEdit, $canDelete]);
+            $processed[$mod] = true;
+        }
+
         foreach ($modules as $mod => $perms) {
+            if (isset($processed[$mod])) continue;
             $stmt->execute([$roleId, $mod,
                 isset($perms['can_view']) ? 1 : 0,
                 isset($perms['can_create']) ? 1 : 0,
@@ -189,21 +249,6 @@ if (isset($_GET['auto_seed_defaults'])) {
 }
 
 $roles = $pdo->query("SELECT r.*, (SELECT COUNT(*) FROM users WHERE role_id = r.id) as user_count FROM roles r ORDER BY r.id")->fetchAll();
-
-$allModules = ['employees','attendance','departments','designations','leaves','payroll','reports','settings','daily_work_reports','tasks','leads','campaigns','call_reports','follow_ups','hr_activities','notices','documents','activity_logs','roles','permissions','users','marketing','telecaller','sales','travel','expenses','assets','meetings','notifications'];
-
-$moduleLabels = [
-    'employees' => 'Employees', 'attendance' => 'Attendance', 'departments' => 'Departments',
-    'designations' => 'Designations', 'leaves' => 'Leaves', 'payroll' => 'Payroll',
-    'reports' => 'Reports', 'settings' => 'Settings', 'daily_work_reports' => 'Work Reports',
-    'tasks' => 'Tasks', 'leads' => 'Leads', 'campaigns' => 'Campaigns',
-    'call_reports' => 'Call Reports', 'follow_ups' => 'Follow Ups', 'hr_activities' => 'HR Activities',
-    'notices' => 'Notices', 'documents' => 'Documents', 'activity_logs' => 'Activity Logs',
-    'roles' => 'Roles', 'permissions' => 'Permissions', 'users' => 'Users',
-    'marketing' => 'Marketing', 'telecaller' => 'Telecaller', 'sales' => 'Sales',
-    'travel' => 'Travel', 'expenses' => 'Expenses', 'assets' => 'Assets',
-    'meetings' => 'Meetings', 'notifications' => 'Notifications',
-];
 
 require_once '../includes/header.php';
 ?>
@@ -380,7 +425,7 @@ function managePermissions(roleId, roleName) {
 document.getElementById('permsForm').addEventListener('submit', function(e) {
     e.preventDefault();
     const formData = new FormData(this);
-    fetch(window.location.href, { method: 'POST', body: formData })
+    fetch('roles.php', { method: 'POST', body: formData })
     .then(r => r.json())
     .then(d => {
         if (d.success) { bootstrap.Modal.getInstance(document.getElementById('permsModal')).hide(); location.reload(); }
