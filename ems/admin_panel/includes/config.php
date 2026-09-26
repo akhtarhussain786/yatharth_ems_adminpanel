@@ -371,7 +371,6 @@ function getMenuItems() {
         ['module' => 'employees', 'label' => 'Employees', 'icon' => 'users', 'link' => 'modules/employees'],
         ['module' => 'attendance', 'label' => 'Attendance', 'icon' => 'calendar-check', 'link' => 'modules/attendance'],
         ['module' => 'departments', 'label' => 'Departments', 'icon' => 'building', 'link' => 'modules/departments'],
-        ['module' => 'settings', 'label' => 'Branches', 'icon' => 'code-branch', 'link' => 'modules/branches'],
         ['module' => 'leave_requests', 'label' => 'Leave Requests', 'icon' => 'envelope-open-text', 'link' => 'modules/leave_requests'],
         ['module' => 'leave_requests', 'label' => 'Leave Calendar', 'icon' => 'calendar-day', 'link' => 'modules/leave_calendar'],
         ['module' => 'leave_requests', 'label' => 'Leave Report', 'icon' => 'chart-pie', 'link' => 'modules/leave_report'],
