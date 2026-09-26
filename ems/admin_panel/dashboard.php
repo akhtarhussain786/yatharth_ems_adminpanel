@@ -1430,12 +1430,6 @@ body {
                             <td><span class="badge badge-<?php echo $statusClass; ?>"><?php echo ucfirst($r['status']); ?></span></td>
                         </tr>
                         <?php endforeach; ?>
-                    <?php else: ?>
-                        <tr>
-                            <td colspan="7" class="text-center text-muted py-4">
-                                <i class="fas fa-inbox me-2"></i>No attendance records for today
-                            </td>
-                        </tr>
                     <?php endif; ?>
                 </tbody>
             </table>

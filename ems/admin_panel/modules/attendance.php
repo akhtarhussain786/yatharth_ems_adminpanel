@@ -496,11 +496,6 @@ require_once '../includes/header.php';
                         </td>
                     </tr>
                     <?php endforeach; ?>
-                    <?php if (empty($records)): ?>
-                    <tr>
-                        <td colspan="12" class="text-center py-4 text-muted">No attendance records found</td>
-                    </tr>
-                    <?php endif; ?>
                 </tbody>
             </table>
         </div>

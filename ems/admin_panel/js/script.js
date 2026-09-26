@@ -17,6 +17,7 @@ $(document).ready(function () {
    ============================================================ */
 function initDataTables() {
     if ($.fn.DataTable) {
+        $.fn.dataTable.ext.errMode = 'none';
         $(".datatable").each(function () {
             if (!$.fn.DataTable.isDataTable(this)) {
                 $(this).DataTable({
