@@ -210,17 +210,135 @@ function handleSalaryReportRequest($action, $param) {
             ];
 
         case 'history':
+        case 'ledger':
             $employeeId = $isAdmin ? intval($data['employee_id'] ?? $param) : (int)$auth['employee_id'];
             if (!$employeeId) return ['success' => false, 'message' => 'Employee ID required'];
 
-            $stmt = $db->prepare("
-                SELECT * FROM salary_processing
-                WHERE employee_id = ?
-                ORDER BY month_year DESC
+            // Fetch employee joining date & basic info
+            $stmtEmp = $db->prepare("SELECT id, first_name, last_name, employee_code, joining_date, salary FROM employees WHERE id = ?");
+            $stmtEmp->execute([$employeeId]);
+            $empObj = $stmtEmp->fetch();
+            if (!$empObj) return ['success' => false, 'message' => 'Employee not found'];
+
+            $joiningDate = !empty($empObj['joining_date']) ? $empObj['joining_date'] : date('Y-m-01', strtotime('-3 months'));
+            $startMonth = date('Y-m', strtotime($joiningDate));
+            $currentMonth = date('Y-m');
+
+            // Generate all months from joining to current
+            $months = [];
+            $cursor = strtotime($startMonth . '-01');
+            $endCursor = strtotime($currentMonth . '-01');
+
+            while ($cursor <= $endCursor) {
+                $m = date('Y-m', $cursor);
+                $months[] = $m;
+                $cursor = strtotime('+1 month', $cursor);
+            }
+
+            // Fetch existing salary processing records for all months
+            $stmtProc = $db->prepare("SELECT * FROM salary_processing WHERE employee_id = ? ORDER BY month_year DESC");
+            $stmtProc->execute([$employeeId]);
+            $procRecords = [];
+            foreach ($stmtProc->fetchAll() as $pr) {
+                $procRecords[$pr['month_year']] = $pr;
+            }
+
+            // Fetch all payments for this employee
+            $stmtPay = $db->prepare("
+                SELECT sp.*, u.username as created_by_name
+                FROM salary_payments sp
+                LEFT JOIN users u ON u.id = sp.created_by
+                WHERE sp.employee_id = ?
+                ORDER BY sp.payment_date DESC, sp.id DESC
             ");
-            $stmt->execute([$employeeId]);
-            $history = $stmt->fetchAll();
-            return ['success' => true, 'data' => $history];
+            $stmtPay->execute([$employeeId]);
+            $allPayments = $stmtPay->fetchAll();
+
+            $monthBreakdown = [];
+            $totalEarned = 0.0;
+            $totalPaid = 0.0;
+            $totalDue = 0.0;
+            $paidMonthsList = [];
+            $unpaidMonthsList = [];
+
+            // Iterate reverse chronological (latest month first)
+            for ($i = count($months) - 1; $i >= 0; $i--) {
+                $m = $months[$i];
+                $mName = date('F Y', strtotime($m . '-01'));
+
+                if (isset($procRecords[$m])) {
+                    $pr = $procRecords[$m];
+                    $netSal = (float)($pr['net_salary'] ?? $pr['current_net_salary'] ?? 0);
+                    $paidAmt = (float)($pr['paid_amount'] ?? 0);
+                    $status = strtolower($pr['payment_status'] ?? ($paidAmt >= $netSal ? 'paid' : ($paidAmt > 0 ? 'partially_paid' : 'unpaid')));
+                    $remDue = (float)($pr['remaining_due'] ?? max(0, $netSal - $paidAmt));
+                    $payrollId = (int)$pr['id'];
+                } else {
+                    $calc = calculateEmployeeSalary($db, $employeeId, $m);
+                    $netSal = (float)($calc['current_net_salary'] ?? $calc['monthly_salary'] ?? 0);
+                    $paidAmt = (float)($calc['paid_amount'] ?? 0);
+                    $status = strtolower($calc['payment_status'] ?? ($paidAmt >= $netSal ? 'paid' : ($paidAmt > 0 ? 'partially_paid' : 'unpaid')));
+                    $remDue = (float)($calc['remaining_due'] ?? max(0, $netSal - $paidAmt));
+                    $payrollId = (int)($calc['payroll_id'] ?? 0);
+                }
+
+                // Filter payments belonging to this month/payroll
+                $monthPayments = array_values(array_filter($allPayments, function($p) use ($payrollId, $employeeId, $m) {
+                    if ($payrollId > 0 && !empty($p['payroll_id']) && (int)$p['payroll_id'] === $payrollId) {
+                        return true;
+                    }
+                    if (!empty($p['payment_date']) && date('Y-m', strtotime($p['payment_date'])) === $m) {
+                        return true;
+                    }
+                    return false;
+                }));
+
+                // Accumulate totals
+                $totalEarned += $netSal;
+                $totalPaid += $paidAmt;
+                $totalDue += $remDue;
+
+                if ($status === 'paid' || $paidAmt >= $netSal) {
+                    $paidMonthsList[] = $mName;
+                } else {
+                    $unpaidMonthsList[] = $mName;
+                }
+
+                $monthBreakdown[] = [
+                    'month_year'     => $m,
+                    'month_name'     => $mName,
+                    'net_salary'     => $netSal,
+                    'paid_amount'    => $paidAmt,
+                    'remaining_due'  => $remDue,
+                    'payment_status' => $status,
+                    'is_current'     => ($m === $currentMonth),
+                    'payments'       => $monthPayments,
+                ];
+            }
+
+            return [
+                'success' => true,
+                'data'    => [
+                    'employee' => [
+                        'id'           => (int)$empObj['id'],
+                        'name'         => trim($empObj['first_name'] . ' ' . ($empObj['last_name'] ?? '')),
+                        'code'         => $empObj['employee_code'] ?? '',
+                        'joining_date' => $empObj['joining_date'],
+                    ],
+                    'summary' => [
+                        'total_earned'          => $totalEarned,
+                        'total_paid'            => $totalPaid,
+                        'total_outstanding_due' => $totalDue,
+                        'total_months'          => count($months),
+                        'paid_months_count'     => count($paidMonthsList),
+                        'unpaid_months_count'   => count($unpaidMonthsList),
+                        'paid_months'           => $paidMonthsList,
+                        'unpaid_months'         => $unpaidMonthsList,
+                    ],
+                    'months' => $monthBreakdown,
+                    'all_payments' => $allPayments,
+                ],
+            ];
 
         case 'payments':
             $employeeId = $isAdmin ? intval($data['employee_id'] ?? $param) : (int)$auth['employee_id'];
