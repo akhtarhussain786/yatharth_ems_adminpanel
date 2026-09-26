@@ -74,6 +74,17 @@ function handleSalaryReportRequest($action, $param) {
                                 'payroll_id'           => $calc['payroll_id'],
                             ],
                             'running_salary' => $calc['running_salary'],
+                            'payments'       => (function() use ($db, $er) {
+                                $stmtP = $db->prepare("
+                                    SELECT sp.*, u.username as created_by_name
+                                    FROM salary_payments sp
+                                    LEFT JOIN users u ON u.id = sp.created_by
+                                    WHERE sp.employee_id = ?
+                                    ORDER BY sp.payment_date DESC, sp.id DESC
+                                ");
+                                $stmtP->execute([(int)$er['id']]);
+                                return $stmtP->fetchAll();
+                            })(),
                         ];
                     }
                 }
@@ -119,6 +130,17 @@ function handleSalaryReportRequest($action, $param) {
                         'lock_status'          => $calc['lock_status'],
                     ],
                     'running_salary' => $calc['running_salary'],
+                    'payments'       => (function() use ($db, $auth) {
+                        $stmtP = $db->prepare("
+                            SELECT sp.*, u.username as created_by_name
+                            FROM salary_payments sp
+                            LEFT JOIN users u ON u.id = sp.created_by
+                            WHERE sp.employee_id = ?
+                            ORDER BY sp.payment_date DESC, sp.id DESC
+                        ");
+                        $stmtP->execute([(int)$auth['employee_id']]);
+                        return $stmtP->fetchAll();
+                    })(),
                 ];
                 return ['success' => true, 'data' => [$single], 'month' => $month];
             }
@@ -173,6 +195,17 @@ function handleSalaryReportRequest($action, $param) {
                         'payroll_id'           => $calc['payroll_id'],
                     ],
                     'running_salary' => $calc['running_salary'],
+                    'payments'       => (function() use ($db, $employeeId) {
+                        $stmtPay = $db->prepare("
+                            SELECT sp.*, u.username as created_by_name
+                            FROM salary_payments sp
+                            LEFT JOIN users u ON u.id = sp.created_by
+                            WHERE sp.employee_id = ?
+                            ORDER BY sp.payment_date DESC, sp.id DESC
+                        ");
+                        $stmtPay->execute([$employeeId]);
+                        return $stmtPay->fetchAll();
+                    })(),
                 ],
             ];
 
