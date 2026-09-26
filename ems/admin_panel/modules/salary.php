@@ -347,6 +347,10 @@ require_once '../includes/header.php';
                 <?php endif; ?>
             </form>
 
+            <a href="salary_ledger<?= $employee_id ? '?employee_id=' . $employee_id : '' ?>" class="btn btn-info btn-sm text-white">
+                <i class="fas fa-book-open me-1"></i> Salary Ledger
+            </a>
+
             <?php if ($employee_id > 0): ?>
                 <a href="salary.php?month=<?php echo $month; ?>" class="btn btn-secondary btn-sm">
                     <i class="fas fa-arrow-left me-1"></i>All Employees
