@@ -222,9 +222,15 @@ function calculateEmployeeSalary($db, $employeeId, $month, $options = []) {
     $totalDeductions = round($attendanceDeduction + $otherDeductions + $advanceDeduction, 2);
 
     // Current Month Net Salary (Earned for this month alone)
-    $currentNetSalary = $isEmployedThisMonth 
-        ? max(0, round($baseEarnedSalary + $totalEarnings - $totalDeductions, 2)) 
-        : 0.00;
+    if ($existingProc && $existingProc['lock_status'] === 'finalized') {
+        $baseEarnedSalary = (float)($existingProc['base_earned_salary'] ?? (!empty($existingProc['current_net_salary']) ? $existingProc['current_net_salary'] : $baseEarnedSalary));
+        $currentNetSalary = (float)(!empty($existingProc['current_net_salary']) ? $existingProc['current_net_salary'] : (!empty($existingProc['net_salary']) ? $existingProc['net_salary'] : $baseEarnedSalary));
+        $isEmployedThisMonth = true;
+    } else {
+        $currentNetSalary = $isEmployedThisMonth 
+            ? max(0, round($baseEarnedSalary + $totalEarnings - $totalDeductions, 2)) 
+            : 0.00;
+    }
 
     // 7. Calculate Previous Due (Carried forward strictly from unpaid balances of prior months)
     $previousDue = calculatePreviousDueForEmployee($db, $employeeId, $month);
@@ -236,16 +242,20 @@ function calculateEmployeeSalary($db, $employeeId, $month, $options = []) {
     $paidAmount = 0.00;
     if ($existingProc && !empty($existingProc['id'])) {
         $payStmt = $db->prepare("
-            SELECT COALESCE(SUM(payment_amount), 0) as total_paid
+            SELECT COALESCE(SUM(COALESCE(payment_amount, amount)), 0) as total_paid
             FROM salary_payments
             WHERE payroll_id = ?
         ");
         $payStmt->execute([$existingProc['id']]);
         $paidAmount = (float)$payStmt->fetchColumn();
+
+        if ($paidAmount <= 0 && !empty($existingProc['paid_amount'])) {
+            $paidAmount = (float)$existingProc['paid_amount'];
+        }
     } else {
         // Check payments recorded by employee and month
         $payStmt = $db->prepare("
-            SELECT COALESCE(SUM(sp.payment_amount), 0) as total_paid
+            SELECT COALESCE(SUM(COALESCE(sp.payment_amount, sp.amount)), 0) as total_paid
             FROM salary_payments sp
             JOIN salary_processing spr ON spr.id = sp.payroll_id
             WHERE sp.employee_id = ? AND (spr.month_year = ? OR spr.payroll_month = ?)
@@ -257,7 +267,9 @@ function calculateEmployeeSalary($db, $employeeId, $month, $options = []) {
     $remainingDue = max(0, round($totalPayable - $paidAmount, 2));
 
     // Determine payment status
-    if ($totalPayable == 0 && $paidAmount == 0) {
+    if ($existingProc && strtolower((string)($existingProc['payment_status'] ?? '')) === 'paid' && $remainingDue == 0) {
+        $paymentStatus = 'paid';
+    } elseif ($totalPayable == 0 && $paidAmount == 0) {
         $paymentStatus = 'unpaid';
     } elseif ($paidAmount >= $totalPayable && $totalPayable > 0) {
         $paymentStatus = 'paid';
