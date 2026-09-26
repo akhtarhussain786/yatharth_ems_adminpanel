@@ -211,87 +211,122 @@ require_once '../includes/header.php';
     font-weight: 600;
 }
 
-/* Salary Slip Specific Print Styles */
+/* Salary Slip Specific Styles */
 .salary-slip-container {
-    background: white;
-    padding: 20px;
-    border-radius: 8px;
-    box-shadow: 0 0 15px rgba(0,0,0,0.08);
+    background: #f1f5f9;
+    padding: 30px 15px;
+    border-radius: 12px;
     margin-top: 15px;
+    display: flex;
+    justify-content: center;
 }
 .salary-slip {
-    max-width: 820px;
+    width: 100%;
+    max-width: 780px;
     margin: 0 auto;
-    padding: 30px;
+    padding: 36px 40px;
     border: 1px solid #cbd5e1;
-    border-radius: 10px;
-    background: white;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1e293b;
 }
 .salary-slip .header {
     text-align: center;
-    border-bottom: 2px solid #1E3A5F;
+    border-bottom: 2px solid #1e3a8a;
     padding-bottom: 12px;
-    margin-bottom: 15px;
+    margin-bottom: 18px;
 }
 .salary-slip .header h2 {
-    color: #1E3A5F;
+    color: #1e3a8a;
     margin: 0;
-    font-size: 22px;
-    font-weight: 700;
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
 }
 .salary-slip .header p {
     margin: 4px 0 0;
-    color: #64748b;
-    font-size: 13px;
+    color: #475569;
+    font-size: 14px;
+    font-weight: 600;
 }
 .salary-slip .employee-info {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px 24px;
-    margin-bottom: 18px;
-    padding: 14px;
+    gap: 8px 30px;
+    margin-bottom: 20px;
+    padding: 14px 18px;
     background: #f8fafc;
     border: 1px solid #e2e8f0;
-    border-radius: 8px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.5;
 }
 .salary-slip .employee-info .label {
     font-weight: 600;
     color: #64748b;
-    font-size: 12px;
 }
 .salary-slip .employee-info .value {
-    color: #1E3A5F;
+    color: #0f172a;
     font-weight: 600;
-    font-size: 13px;
 }
-.salary-slip table {
+.salary-slip table.slip-table {
     width: 100%;
     border-collapse: collapse;
-    margin: 12px 0;
+    margin: 15px 0;
 }
-.salary-slip table th {
-    background: #1E3A5F;
-    color: white;
-    padding: 8px 12px;
+.salary-slip table.slip-table th {
+    background: #1e3a5f;
+    color: #ffffff;
+    padding: 10px 14px;
     font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
     text-transform: uppercase;
+    border: none;
 }
-.salary-slip table td {
-    padding: 7px 12px;
+.salary-slip table.slip-table td {
+    padding: 8px 14px;
     border-bottom: 1px solid #e2e8f0;
     font-size: 13px;
+    vertical-align: middle;
 }
-.salary-slip table .total-row {
-    background: #0f172a;
-    color: white;
-    font-weight: bold;
+.salary-slip .summary-box {
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #475569;
 }
-.salary-slip table .total-row td {
-    color: white;
+.salary-slip .signature-section {
+    margin-top: 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+}
+.salary-slip .signature-block {
+    width: 200px;
+}
+.salary-slip .signature-title {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 600;
+    margin-bottom: 45px;
+}
+.salary-slip .signature-line {
+    border-top: 1px solid #cbd5e1;
+    width: 100%;
 }
 .salary-slip .footer {
     text-align: center;
-    margin-top: 25px;
+    margin-top: 30px;
     padding-top: 15px;
     border-top: 1px solid #e2e8f0;
     font-size: 11px;
@@ -299,20 +334,34 @@ require_once '../includes/header.php';
 }
 
 @media print {
-    .no-print {
+    .no-print, nav, .sidebar, .navbar, header, footer {
         display: none !important;
+    }
+    body {
+        background: #ffffff !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+    .salary-slip-container {
+        background: transparent !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin: 0 auto !important;
     }
     .salary-slip {
         border: none !important;
         box-shadow: none !important;
-        padding: 0 !important;
+        padding: 15px 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
     }
-    .salary-slip-container {
-        box-shadow: none !important;
-        padding: 0 !important;
+    .slip-table {
+        page-break-inside: avoid;
     }
-    body {
-        background: white !important;
+    .slip-table tr {
+        page-break-inside: avoid;
     }
 }
 </style>
@@ -848,141 +897,139 @@ function renderSalarySlipView($r, $pdo) {
         <div class="salary-slip" id="salarySlip">
             <div class="header">
                 <h2>YATHARTH INSTITUTION</h2>
-                <p class="fw-bold text-secondary">Salary Slip &mdash; <?php echo $r['month_name']; ?></p>
+                <p>Salary Slip &mdash; <?php echo $r['month_name']; ?></p>
             </div>
             
             <div class="employee-info">
                 <div><span class="label">Employee Name:</span> <span class="value"><?php echo sanitize($emp['first_name'] . ' ' . ($emp['last_name'] ?? '')); ?></span></div>
                 <div><span class="label">Employee Code:</span> <span class="value"><?php echo sanitize($emp['employee_code']); ?></span></div>
                 <div><span class="label">Department:</span> <span class="value"><?php echo sanitize($emp['department_name'] ?? '-'); ?></span></div>
-                <div><span class="label">Designation:</span> <span class="value"><?php echo sanitize($emp['designation_name'] ?? '-'); ?></span></div>
-                <div><span class="label">Date of Joining:</span> <span class="value text-primary"><?php echo $r['joining_date'] ? date('d-M-Y', strtotime($r['joining_date'])) : '-'; ?></span></div>
+                <div><span class="label">Designation:</span> <span class="value" style="text-transform:uppercase;"><?php echo sanitize($emp['designation_name'] ?? '-'); ?></span></div>
+                <div><span class="label">Date of Joining:</span> <span class="value" style="color:#0284c7;"><?php echo $r['joining_date'] ? date('d-M-Y', strtotime($r['joining_date'])) : '-'; ?></span></div>
                 <div><span class="label">Payroll Month:</span> <span class="value"><?php echo $r['month_name']; ?> (<?php echo $r['total_days_in_month']; ?> Days)</span></div>
                 <div><span class="label">Eligible Period:</span> <span class="value"><?php echo date('d M', strtotime($r['effective_start_date'])); ?> to <?php echo date('d M Y', strtotime($r['effective_end_date'])); ?></span></div>
-                <div><span class="label">Eligible Days:</span> <span class="value badge <?php echo $r['is_prorated'] ? 'bg-warning text-dark' : 'bg-success'; ?>"><?php echo $r['eligible_days']; ?> Days</span></div>
+                <div><span class="label">Eligible Days:</span> <span style="background-color:#facc15;color:#854d0e;font-weight:700;font-size:12px;padding:2px 14px;border-radius:12px;display:inline-block;"><?php echo $r['eligible_days']; ?> Days</span></div>
             </div>
             
-            <table>
+            <table class="slip-table">
                 <thead>
                     <tr>
-                        <th style="width:50%">Description</th>
-                        <th style="width:20%;text-align:center">Days / Calculation</th>
-                        <th style="width:30%;text-align:right">Amount (₹)</th>
+                        <th style="width:48%;">DESCRIPTION</th>
+                        <th style="width:26%;text-align:center;">DAYS / CALCULATION</th>
+                        <th style="width:26%;text-align:right;">AMOUNT (₹)</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td><strong>Monthly Fixed Salary</strong></td>
-                        <td style="text-align:center">30 Days Standard</td>
+                        <td style="font-weight:600;">Monthly Fixed Salary</td>
+                        <td style="text-align:center;color:#475569;">30 Days Standard</td>
                         <td style="text-align:right;font-weight:600;">₹ <?php echo number_format($r['monthly_salary'], 2); ?></td>
                     </tr>
                     
                     <?php if ($r['is_prorated']): ?>
                     <tr style="background:#fffbeb;">
                         <td>
-                            <strong>📅 Base Prorated Salary</strong>
-                            <div style="font-size:11px;color:#666;">Joined on <?php echo date('d-M-Y', strtotime($r['joining_date'])); ?> (<?php echo $r['eligible_days']; ?> days eligible)</div>
+                            <strong style="color:#0f172a;">📅 Base Prorated Salary</strong>
+                            <div style="font-size:11px;color:#64748b;margin-top:2px;">Joined on <?php echo date('d-M-Y', strtotime($r['joining_date'])); ?> (<?php echo $r['eligible_days']; ?> days eligible)</div>
                         </td>
-                        <td style="text-align:center"><?php echo $r['eligible_days']; ?>d × ₹<?php echo number_format($r['daily_rate'], 2); ?></td>
-                        <td style="text-align:right;font-weight:bold;color:#0369a1;">₹ <?php echo number_format($r['base_earned_salary'], 2); ?></td>
+                        <td style="text-align:center;color:#475569;"><?php echo $r['eligible_days']; ?>d × ₹<?php echo number_format($r['daily_rate'], 2); ?></td>
+                        <td style="text-align:right;font-weight:700;color:#0284c7;">₹ <?php echo number_format($r['base_earned_salary'], 2); ?></td>
                     </tr>
                     <?php endif; ?>
 
                     <!-- Attendance Breakdown Section -->
                     <tr style="background:#f1f5f9;">
-                        <td colspan="3" style="font-weight:bold;color:#1e293b;font-size:12px;">ATTENDANCE BREAKDOWN (ELIGIBLE PERIOD)</td>
+                        <td colspan="3" style="font-weight:700;color:#334155;font-size:11px;letter-spacing:0.5px;padding:8px 14px;">ATTENDANCE BREAKDOWN (ELIGIBLE PERIOD)</td>
                     </tr>
                     <tr>
                         <td>✅ Present Days (Full + Half)</td>
-                        <td style="text-align:center"><?php echo $r['present_days']; ?> Days</td>
-                        <td style="text-align:right;color:#16a34a;">+ <?php echo $r['present_days']; ?>d</td>
+                        <td style="text-align:center;color:#475569;"><?php echo $r['present_days']; ?> Days</td>
+                        <td style="text-align:right;color:#16a34a;font-weight:600;">+ <?php echo $r['present_days']; ?>d</td>
                     </tr>
                     <tr>
                         <td>📅 Paid Leaves / Weekly Off / Holidays</td>
-                        <td style="text-align:center"><?php echo $r['paid_leave_days'] + $r['weekly_off_days'] + $r['holiday_days']; ?> Days</td>
-                        <td style="text-align:right;color:#16a34a;">+ <?php echo $r['paid_leave_days'] + $r['weekly_off_days'] + $r['holiday_days']; ?>d</td>
+                        <td style="text-align:center;color:#475569;"><?php echo $r['paid_leave_days'] + $r['weekly_off_days'] + $r['holiday_days']; ?> Days</td>
+                        <td style="text-align:right;color:#16a34a;font-weight:600;">+ <?php echo $r['paid_leave_days'] + $r['weekly_off_days'] + $r['holiday_days']; ?>d</td>
                     </tr>
 
                     <!-- Deductions Section -->
                     <tr style="background:#fee2e2;">
-                        <td colspan="3" style="font-weight:bold;color:#991b1b;font-size:12px;">DEDUCTIONS</td>
+                        <td colspan="3" style="font-weight:700;color:#991b1b;font-size:11px;letter-spacing:0.5px;padding:8px 14px;">DEDUCTIONS</td>
                     </tr>
                     <tr>
-                        <td style="padding-left:16px;">❌ Absent / Unpaid Leave</td>
-                        <td style="text-align:center"><?php echo $r['absent_days'] + $r['unpaid_leave_days']; ?>d × ₹<?php echo number_format($r['daily_rate'], 2); ?></td>
-                        <td style="text-align:right;color:#dc2626;">- ₹ <?php echo number_format($r['absent_deduction'], 2); ?></td>
+                        <td>❌ Absent / Unpaid Leave</td>
+                        <td style="text-align:center;color:#64748b;"><?php echo $r['absent_days'] + $r['unpaid_leave_days']; ?>d × ₹<?php echo number_format($r['daily_rate'], 2); ?></td>
+                        <td style="text-align:right;color:#dc2626;font-weight:600;">- ₹ <?php echo number_format($r['absent_deduction'], 2); ?></td>
                     </tr>
                     <?php if ($r['half_day_deduction'] > 0): ?>
                     <tr>
-                        <td style="padding-left:16px;">⚠️ Half Day Deductions</td>
-                        <td style="text-align:center"><?php echo $r['half_days']; ?>d × 50%</td>
-                        <td style="text-align:right;color:#ea580c;">- ₹ <?php echo number_format($r['half_day_deduction'], 2); ?></td>
+                        <td>⚠️ Half Day Deductions</td>
+                        <td style="text-align:center;color:#64748b;"><?php echo $r['half_days']; ?>d × 50%</td>
+                        <td style="text-align:right;color:#ea580c;font-weight:600;">- ₹ <?php echo number_format($r['half_day_deduction'], 2); ?></td>
                     </tr>
                     <?php endif; ?>
                     <?php if ($r['other_deductions'] > 0): ?>
                     <tr>
-                        <td style="padding-left:16px;">📌 Other Deductions</td>
-                        <td style="text-align:center">-</td>
-                        <td style="text-align:right;color:#dc2626;">- ₹ <?php echo number_format($r['other_deductions'], 2); ?></td>
+                        <td>📌 Other Deductions</td>
+                        <td style="text-align:center;color:#64748b;">-</td>
+                        <td style="text-align:right;color:#dc2626;font-weight:600;">- ₹ <?php echo number_format($r['other_deductions'], 2); ?></td>
                     </tr>
                     <?php endif; ?>
 
                     <!-- Current Month Earned Net -->
-                    <tr style="background:#e0f2fe;font-weight:bold;">
-                        <td>CURRENT MONTH NET SALARY (EARNED)</td>
-                        <td style="text-align:center"><?php echo $r['month_name']; ?></td>
-                        <td style="text-align:right;color:#0369a1;font-size:15px;">₹ <?php echo number_format($r['current_net_salary'], 2); ?></td>
+                    <tr style="background:#e0f2fe;font-weight:700;">
+                        <td style="color:#0369a1;">CURRENT MONTH NET SALARY (EARNED)</td>
+                        <td style="text-align:center;color:#0369a1;"><?php echo $r['month_name']; ?></td>
+                        <td style="text-align:right;color:#0284c7;font-size:15px;font-weight:800;">₹ <?php echo number_format($r['current_net_salary'], 2); ?></td>
                     </tr>
 
                     <!-- Outstanding Carry Forward & Total Payable -->
                     <?php if ($r['previous_due'] > 0): ?>
-                    <tr style="background:#fef2f2;">
-                        <td><strong>⚠️ Previous Months Outstanding Due (Carry Forward)</strong></td>
+                    <tr style="background:#fef2f2;font-weight:600;">
+                        <td style="color:#991b1b;">⚠️ Previous Months Outstanding Due (Carry Forward)</td>
                         <td style="text-align:center;color:#dc2626;">Prior Unpaid</td>
-                        <td style="text-align:right;font-weight:bold;color:#dc2626;">+ ₹ <?php echo number_format($r['previous_due'], 2); ?></td>
+                        <td style="text-align:right;color:#dc2626;font-weight:700;">+ ₹ <?php echo number_format($r['previous_due'], 2); ?></td>
                     </tr>
                     <?php endif; ?>
 
-                    <tr class="total-row">
-                        <td><strong>TOTAL PAYABLE AMOUNT</strong></td>
-                        <td style="text-align:center">Net + Prior Dues</td>
-                        <td style="text-align:right;font-size:17px;">₹ <?php echo number_format($r['total_payable'], 2); ?></td>
+                    <tr style="background:#0f172a;color:#ffffff;font-weight:800;">
+                        <td style="padding:10px 14px;color:#ffffff;letter-spacing:0.5px;">TOTAL PAYABLE AMOUNT</td>
+                        <td style="padding:10px 14px;text-align:center;color:#cbd5e1;">Net + Prior Dues</td>
+                        <td style="padding:10px 14px;text-align:right;color:#ffffff;font-size:16px;">₹ <?php echo number_format($r['total_payable'], 2); ?></td>
                     </tr>
 
                     <tr>
-                        <td><strong>Amount Paid</strong></td>
-                        <td style="text-align:center"><?php echo $r['payment_status']; ?></td>
-                        <td style="text-align:right;font-weight:bold;color:#16a34a;">₹ <?php echo number_format($r['paid_amount'], 2); ?></td>
+                        <td style="font-weight:600;color:#334155;">Amount Paid</td>
+                        <td style="text-align:center;color:#64748b;text-transform:lowercase;"><?php echo $r['payment_status']; ?></td>
+                        <td style="text-align:right;font-weight:700;color:#16a34a;font-size:15px;">₹ <?php echo number_format($r['paid_amount'], 2); ?></td>
                     </tr>
-                    <tr style="background:#f8fafc;font-weight:bold;">
-                        <td><strong>REMAINING BALANCE DUE</strong></td>
-                        <td style="text-align:center">-</td>
-                        <td style="text-align:right;font-size:15px;color:#dc2626;">₹ <?php echo number_format($r['remaining_due'], 2); ?></td>
+                    <tr style="background:#f8fafc;font-weight:700;">
+                        <td style="color:#0f172a;">REMAINING BALANCE DUE</td>
+                        <td style="text-align:center;color:#64748b;">-</td>
+                        <td style="text-align:right;font-size:15px;color:<?php echo $r['remaining_due'] > 0 ? '#dc2626' : '#16a34a'; ?>;">₹ <?php echo number_format($r['remaining_due'], 2); ?></td>
                     </tr>
                 </tbody>
             </table>
             
-            <div style="margin-top:15px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;display:grid;grid-template-columns:1fr 1fr;gap:5px;font-size:12px;">
+            <div class="summary-box">
                 <div><strong>Amount in Words:</strong> <?php echo numberToWords($r['total_payable']); ?></div>
-                <div style="text-align:right;"><strong>Generated On:</strong> <?php echo date('d-M-Y'); ?></div>
+                <div><strong>Generated On:</strong> <?php echo date('d-M-Y'); ?></div>
             </div>
             
-            <div style="margin-top:25px;display:flex;justify-content:space-between;padding-top:15px;border-top:1px solid #cbd5e1;">
-                <div>
-                    <p style="margin:0;font-size:12px;color:#64748b;">Employee Signature</p>
-                    <div style="height:35px;"></div>
-                    <p style="margin:0;font-size:11px;color:#94a3b8;">_____________________</p>
+            <div class="signature-section">
+                <div class="signature-block">
+                    <div class="signature-title">Employee Signature</div>
+                    <div class="signature-line"></div>
                 </div>
-                <div style="text-align:right;">
-                    <p style="margin:0;font-size:12px;color:#64748b;">Authorized Signatory</p>
-                    <div style="height:35px;"></div>
-                    <p style="margin:0;font-size:11px;color:#94a3b8;">_____________________</p>
+                <div class="signature-block" style="text-align:right;">
+                    <div class="signature-title">Authorized Signatory</div>
+                    <div class="signature-line"></div>
                 </div>
             </div>
             
             <div class="footer">
                 <p style="margin:0 0 4px;">This is a computer generated salary slip. Yatharth Institution EMS.</p>
-                <p style="margin:0;">© <?php echo date('Y'); ?> Yatharth Institution &mdash; All Rights Reserved</p>
+                <p style="margin:0;">&copy; <?php echo date('Y'); ?> Yatharth Institution &mdash; All Rights Reserved</p>
             </div>
         </div>
     </div>
