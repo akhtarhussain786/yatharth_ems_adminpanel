@@ -229,6 +229,14 @@ h6 { font-size: 0.875rem; }
     transition: margin-left 0.3s ease;
 }
 
+/* Sidebar Collapse (Desktop & Tablet) */
+body.sidebar-collapsed .sidebar {
+    transform: translateX(-100%);
+}
+body.sidebar-collapsed .main-content {
+    margin-left: 0 !important;
+}
+
 /* === Header/Navbar === */
 .main-header {
     position: sticky;
@@ -249,20 +257,25 @@ h6 { font-size: 0.875rem; }
     gap: 16px;
 }
 .main-header .sidebar-toggle {
-    display: none;
-    width: 36px;
-    height: 36px;
-    border: none;
-    background: var(--gray-100);
-    border-radius: var(--radius-sm);
-    color: var(--gray-600);
+    display: inline-flex;
+    width: 38px;
+    height: 38px;
+    border: 1px solid var(--gray-200);
+    background: #ffffff;
+    border-radius: var(--radius-md);
+    color: var(--gray-700);
     cursor: pointer;
     align-items: center;
     justify-content: center;
     font-size: 1.1rem;
-    transition: all 0.2s;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
-.main-header .sidebar-toggle:hover { background: var(--gray-200); }
+.main-header .sidebar-toggle:hover {
+    background: var(--primary-bg);
+    color: var(--primary);
+    border-color: var(--primary-light);
+}
 .main-header .header-search {
     position: relative;
     width: 300px;

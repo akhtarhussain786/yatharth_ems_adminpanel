@@ -101,6 +101,14 @@ function exportTable(type, dtInstance) {
    Sidebar
    ============================================================ */
 function initSidebar() {
+    // Restore desktop collapsed state
+    if ($(window).width() >= 1200) {
+        var isCollapsed = localStorage.getItem('sidebar_collapsed') === 'true';
+        if (isCollapsed) {
+            $('body').addClass('sidebar-collapsed');
+        }
+    }
+
     $(document).on("click", function (e) {
         if ($(window).width() < 1200) {
             if (!$(e.target).closest(".sidebar").length && !$(e.target).closest(".sidebar-toggle").length) {
@@ -115,6 +123,10 @@ function toggleSidebar() {
     if ($(window).width() < 1200) {
         $("#sidebar").toggleClass("show");
         $("#sidebarOverlay").toggle();
+    } else {
+        $('body').toggleClass('sidebar-collapsed');
+        var isCollapsed = $('body').hasClass('sidebar-collapsed');
+        localStorage.setItem('sidebar_collapsed', isCollapsed);
     }
 }
 
