@@ -445,6 +445,7 @@ function handleSalaryReportRequest($action, $param) {
                 $cyclePeriodFormatted = date('d M Y', strtotime($cycleStartStr)) . ' – ' . date('d M Y', strtotime($cycleEndStr));
                 $dueDateFormatted = date('d M Y', strtotime($cycleDueDateStr));
 
+                $monthDue = max(0.0, round($netSal - $paidAmt, 2));
                 $monthBreakdown[] = [
                     'month_year'     => $m,
                     'month_name'     => $mName,
@@ -453,7 +454,8 @@ function handleSalaryReportRequest($action, $param) {
                     'due_date_label' => $dueDateFormatted,
                     'net_salary'     => $netSal,
                     'paid_amount'    => $paidAmt,
-                    'remaining_due'  => $remDue,
+                    'remaining_due'  => $monthDue,
+                    'month_due'      => $monthDue,
                     'payment_status' => $status,
                     'is_current'     => ($m === $currentMonth),
                     'payments'       => $monthPayments,

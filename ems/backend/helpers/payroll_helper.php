@@ -351,34 +351,72 @@ function calculateEmployeeSalary($db, $employeeId, $month, $options = []) {
  * Guarantees zero duplication by calculating: (Sum of all past Net Salaries) - (Sum of all past Payments).
  */
 function calculatePreviousDueForEmployee($db, $employeeId, $currentMonth) {
-    $stmt = $db->prepare("
-        SELECT id, month_year, payroll_month, current_net_salary, net_salary, paid_amount, remaining_due
-        FROM salary_processing
-        WHERE employee_id = ?
-          AND (month_year < ? OR (payroll_month IS NOT NULL AND payroll_month < ?))
-        ORDER BY month_year ASC
-    ");
-    $stmt->execute([$employeeId, $currentMonth, $currentMonth]);
-    $pastPayrolls = $stmt->fetchAll();
+    // 1. Get employee joining date
+    $empStmt = $db->prepare("SELECT joining_date FROM employees WHERE id = ?");
+    $empStmt->execute([$employeeId]);
+    $jDate = $empStmt->fetchColumn();
+    $startMonth = !empty($jDate) ? date('Y-m', strtotime($jDate)) : date('Y-m', strtotime('-3 months'));
 
-    if (empty($pastPayrolls)) {
+    // If currentMonth is earlier than or equal to startMonth, no prior months exist
+    if ($currentMonth <= $startMonth) {
         return 0.00;
     }
 
-    $totalPastDue = 0.00;
-    foreach ($pastPayrolls as $p) {
-        $rem = (float)($p['remaining_due'] ?? 0);
-        // Double check against payment records
-        $payStmt = $db->prepare("SELECT COALESCE(SUM(payment_amount), 0) FROM salary_payments WHERE payroll_id = ?");
-        $payStmt->execute([$p['id']]);
-        $actualPaid = (float)$payStmt->fetchColumn();
-
-        $monthNet = (float)(!empty($p['current_net_salary']) ? $p['current_net_salary'] : $p['net_salary']);
-        $due = max(0, round($monthNet - $actualPaid, 2));
-        $totalPastDue += $due;
+    // 2. Fetch all unique past months between startMonth and currentMonth (exclusive)
+    $cursor = strtotime($startMonth . '-01');
+    $endCursor = strtotime($currentMonth . '-01');
+    $pastMonths = [];
+    while ($cursor < $endCursor) {
+        $pastMonths[] = date('Y-m', $cursor);
+        $cursor = strtotime('+1 month', $cursor);
     }
 
-    return round($totalPastDue, 2);
+    if (empty($pastMonths)) {
+        return 0.00;
+    }
+
+    // 3. For each past month, find net salary and payments accurately
+    $totalPastEarned = 0.00;
+    $totalPastPaid = 0.00;
+
+    foreach ($pastMonths as $pm) {
+        $st = $db->prepare("
+            SELECT id, current_net_salary, net_salary, base_earned_salary, monthly_salary, paid_amount, payment_status
+            FROM salary_processing
+            WHERE employee_id = ? AND (month_year = ? OR payroll_month = ?)
+            ORDER BY id DESC LIMIT 1
+        ");
+        $st->execute([$employeeId, $pm, $pm]);
+        $row = $st->fetch();
+
+        if ($row) {
+            $mNet = (float)(!empty($row['current_net_salary']) ? $row['current_net_salary'] : (!empty($row['net_salary']) ? $row['net_salary'] : $row['base_earned_salary']));
+            $mPaid = (float)($row['paid_amount'] ?? 0);
+            
+            // Check payments table for this payroll
+            $paySt = $db->prepare("SELECT COALESCE(SUM(COALESCE(payment_amount, amount)), 0) FROM salary_payments WHERE payroll_id = ?");
+            $paySt->execute([$row['id']]);
+            $directPaid = (float)$paySt->fetchColumn();
+            $actualPaid = max($mPaid, $directPaid);
+
+            // If marked as paid, ensure full net is accounted as paid
+            if (strtolower((string)($row['payment_status'] ?? '')) === 'paid' && $actualPaid < $mNet) {
+                $actualPaid = $mNet;
+            }
+
+            $totalPastEarned += $mNet;
+            $totalPastPaid += $actualPaid;
+        } else {
+            // Auto-calculate for that past month if no record exists
+            $c = calculateEmployeeSalary($db, $employeeId, $pm);
+            if ($c['success'] && $c['is_employed_this_month']) {
+                $totalPastEarned += (float)$c['current_net_salary'];
+                $totalPastPaid += (float)$c['paid_amount'];
+            }
+        }
+    }
+
+    return max(0.00, round($totalPastEarned - $totalPastPaid, 2));
 }
 
 /**
