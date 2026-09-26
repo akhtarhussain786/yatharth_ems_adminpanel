@@ -393,7 +393,7 @@ function calculatePreviousDueForEmployee($db, $employeeId, $currentMonth) {
 
     foreach ($pastMonths as $pm) {
         $st = $db->prepare("
-            SELECT id, current_net_salary, net_salary, base_earned_salary, monthly_salary, paid_amount, payment_status
+            SELECT id, current_net_salary, net_salary, base_earned_salary, basic_salary, paid_amount, payment_status
             FROM salary_processing
             WHERE employee_id = ? AND (month_year = ? OR payroll_month = ?)
             ORDER BY id DESC LIMIT 1

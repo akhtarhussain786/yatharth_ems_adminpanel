@@ -1431,24 +1431,29 @@ function runSchemaMigrations($db)
             if (!$julId) {
                 $db->prepare("
                     INSERT INTO salary_processing (
-                        employee_id, month_year, total_working_days, present_days, absent_days, half_days, late_days,
-                        paid_leaves, unpaid_leaves, earned_leaves, weekly_offs, holidays, monthly_salary, per_day_salary,
-                        base_earned_salary, bonus_amount, total_earnings, attendance_deductions, other_deductions,
-                        total_deductions, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
-                        payment_status, payment_date, payment_mode, notes, lock_status, created_at
+                        employee_id, month_year, payroll_month, total_days_in_month, eligible_days, daily_rate,
+                        present_days, absent_days, half_days, late_days,
+                        paid_leave_days, unpaid_leave_days, earned_leave_days, weekly_off_days, holiday_days,
+                        basic_salary, base_earned_salary, allowances, deductions,
+                        net_salary, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
+                        payment_status, notes, lock_status, created_at
                     ) VALUES (
-                        ?, '2026-07', 31, 24, 0, 0, 0,
-                        0, 0, 0, 0, 0, 15000.00, 500.00,
-                        15000.00, 0, 0, 0, 0,
-                        0, 15000.00, 0.00, 15000.00, 15000.00, 0.00,
-                        'paid', '2026-08-13', 'bank_transfer', 'July 2026 Salary paid on 13 Aug 2026', 'finalized', NOW()
+                        ?, '2026-07', '2026-07', 31, 24, 500.00,
+                        0, 0, 0, 0,
+                        0, 0, 0, 0, 0,
+                        15000.00, 15000.00, 0.00, 0.00,
+                        15000.00, 15000.00, 0.00, 15000.00, 15000.00, 0.00,
+                        'paid', 'July 2026 Salary paid on 13 Aug 2026', 'finalized', NOW()
                     )
                 ")->execute([$empId]);
                 $julId = (int)$db->lastInsertId();
             } else {
                 $db->prepare("
                     UPDATE salary_processing SET
-                        monthly_salary = 15000.00,
+                        month_year = '2026-07',
+                        payroll_month = '2026-07',
+                        basic_salary = 15000.00,
+                        base_earned_salary = 15000.00,
                         current_net_salary = 15000.00,
                         net_salary = 15000.00,
                         previous_due = 0.00,
@@ -1456,38 +1461,42 @@ function runSchemaMigrations($db)
                         paid_amount = 15000.00,
                         remaining_due = 0.00,
                         payment_status = 'paid',
-                        payment_date = '2026-08-13',
-                        payment_mode = 'bank_transfer',
+                        lock_status = 'finalized',
                         notes = 'July 2026 Salary paid on 13 Aug 2026'
                     WHERE id = ?
                 ")->execute([$julId]);
             }
 
             // 2. August 2026 record -> Ensure exists & status = UNPAID (Due Rs. 15,000)
-            $stmtAug = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-08'");
+            $stmtAug = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-08' OR payroll_month = '2026-08')");
             $stmtAug->execute([$empId]);
             $augId = $stmtAug->fetchColumn();
 
             if (!$augId) {
                 $db->prepare("
                     INSERT INTO salary_processing (
-                        employee_id, month_year, total_working_days, present_days, absent_days, half_days, late_days,
-                        paid_leaves, unpaid_leaves, earned_leaves, weekly_offs, holidays, monthly_salary, per_day_salary,
-                        base_earned_salary, bonus_amount, total_earnings, attendance_deductions, other_deductions,
-                        total_deductions, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
-                        payment_status, payment_date, payment_mode, notes, lock_status, created_at
+                        employee_id, month_year, payroll_month, total_days_in_month, eligible_days, daily_rate,
+                        present_days, absent_days, half_days, late_days,
+                        paid_leave_days, unpaid_leave_days, earned_leave_days, weekly_off_days, holiday_days,
+                        basic_salary, base_earned_salary, allowances, deductions,
+                        net_salary, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
+                        payment_status, notes, lock_status, created_at
                     ) VALUES (
-                        ?, '2026-08', 31, 31, 0, 0, 0,
-                        0, 0, 0, 0, 0, 15000.00, 500.00,
-                        15000.00, 0, 0, 0, 0,
-                        0, 15000.00, 0.00, 15000.00, 0.00, 15000.00,
-                        'unpaid', NULL, NULL, 'August 2026 Salary Pending', 'generated', NOW()
+                        ?, '2026-08', '2026-08', 31, 31, 500.00,
+                        0, 0, 0, 0,
+                        0, 0, 0, 0, 0,
+                        15000.00, 15000.00, 0.00, 0.00,
+                        15000.00, 15000.00, 0.00, 15000.00, 0.00, 15000.00,
+                        'unpaid', 'August 2026 Salary Pending', 'generated', NOW()
                     )
                 ")->execute([$empId]);
             } else {
                 $db->prepare("
                     UPDATE salary_processing SET
-                        monthly_salary = 15000.00,
+                        month_year = '2026-08',
+                        payroll_month = '2026-08',
+                        basic_salary = 15000.00,
+                        base_earned_salary = 15000.00,
                         current_net_salary = 15000.00,
                         net_salary = 15000.00,
                         previous_due = 0.00,
@@ -1495,21 +1504,24 @@ function runSchemaMigrations($db)
                         paid_amount = 0.00,
                         remaining_due = 15000.00,
                         payment_status = 'unpaid',
-                        payment_date = NULL,
+                        lock_status = 'generated',
                         notes = 'August 2026 Salary Pending'
                     WHERE id = ?
                 ")->execute([$augId]);
             }
 
             // 3. September 2026 record -> Reset to UNPAID with August previous due of Rs. 15k (Total Payable Rs. 30k)
-            $stmtSep = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-09'");
+            $stmtSep = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-09' OR payroll_month = '2026-09')");
             $stmtSep->execute([$empId]);
             $sepId = $stmtSep->fetchColumn();
 
             if ($sepId) {
                 $db->prepare("
                     UPDATE salary_processing SET
-                        monthly_salary = 15000.00,
+                        month_year = '2026-09',
+                        payroll_month = '2026-09',
+                        basic_salary = 15000.00,
+                        base_earned_salary = 15000.00,
                         current_net_salary = 15000.00,
                         net_salary = 15000.00,
                         previous_due = 15000.00,
@@ -1517,9 +1529,8 @@ function runSchemaMigrations($db)
                         paid_amount = 0.00,
                         remaining_due = 30000.00,
                         payment_status = 'unpaid',
-                        payment_date = NULL,
-                        payment_mode = NULL,
-                        notes = 'September 2026 (Aug Due: Rs. 15k, Sep: Rs. 15k, Total: Rs. 30k)'
+                        lock_status = 'generated',
+                        notes = 'September 2026 Ongoing (August Due: Rs. 15k, Total Due: Rs. 30k)'
                     WHERE id = ?
                 ")->execute([$sepId]);
             }
