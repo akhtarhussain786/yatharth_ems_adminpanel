@@ -62,12 +62,31 @@ try {
                 notes = 'July 2026 Salary paid on 13 Aug 2026'
             WHERE id = ?
         ");
+        $stmtUpdJul = $db->prepare("
+            UPDATE salary_processing SET
+                month_year = '2026-07',
+                payroll_month = '2026-07',
+                basic_salary = 15000.00,
+                base_earned_salary = 15000.00,
+                current_net_salary = 15000.00,
+                net_salary = 15000.00,
+                previous_due = 0.00,
+                total_payable = 15000.00,
+                paid_amount = 15000.00,
+                remaining_due = 0.00,
+                payment_status = 'paid',
+                lock_status = 'finalized',
+                notes = 'July 2026 Salary paid on 13 Aug 2026'
+            WHERE id = ?
+        ");
         $stmtUpdJul->execute([$julPayrollId]);
         echo "Updated July 2026 Salary Record (ID: $julPayrollId) -> PAID Rs. 15,000 (Remaining Due: Rs. 0)\n";
     }
+    // Clean any duplicates for July
+    $db->prepare("DELETE FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-07' OR payroll_month = '2026-07') AND id != ?")->execute([$empId, $julPayrollId]);
 
     // 2. Ensure August 2026 processing record exists
-    $stmtAug = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-08' OR payroll_month = '2026-08')");
+    $stmtAug = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-08' OR payroll_month = '2026-08') ORDER BY id ASC");
     $stmtAug->execute([$empId]);
     $augRow = $stmtAug->fetch();
     $augPayrollId = $augRow ? (int)$augRow['id'] : 0;
@@ -96,6 +115,8 @@ try {
     } else {
         $stmtUpdAug = $db->prepare("
             UPDATE salary_processing SET
+                month_year = '2026-08',
+                payroll_month = '2026-08',
                 basic_salary = 15000.00,
                 base_earned_salary = 15000.00,
                 current_net_salary = 15000.00,
@@ -105,15 +126,18 @@ try {
                 paid_amount = 0.00,
                 remaining_due = 15000.00,
                 payment_status = 'unpaid',
+                lock_status = 'generated',
                 notes = 'August 2026 Salary Pending'
             WHERE id = ?
         ");
         $stmtUpdAug->execute([$augPayrollId]);
         echo "Updated August 2026 Salary Record (ID: $augPayrollId) -> UNPAID Rs. 15,000\n";
     }
+    // Clean any duplicates for August
+    $db->prepare("DELETE FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-08' OR payroll_month = '2026-08') AND id != ?")->execute([$empId, $augPayrollId]);
 
     // 3. Reset September 2026 processing record to unpaid (with previous due of 15,000 from August)
-    $stmtSep = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-09' OR payroll_month = '2026-09')");
+    $stmtSep = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-09' OR payroll_month = '2026-09') ORDER BY id ASC");
     $stmtSep->execute([$empId]);
     $sepRow = $stmtSep->fetch();
     $sepPayrollId = $sepRow ? (int)$sepRow['id'] : 0;
@@ -121,6 +145,8 @@ try {
     if ($sepPayrollId) {
         $stmtUpdSep = $db->prepare("
             UPDATE salary_processing SET
+                month_year = '2026-09',
+                payroll_month = '2026-09',
                 basic_salary = 15000.00,
                 base_earned_salary = 15000.00,
                 current_net_salary = 15000.00,
@@ -130,12 +156,15 @@ try {
                 paid_amount = 0.00,
                 remaining_due = 30000.00,
                 payment_status = 'unpaid',
+                lock_status = 'generated',
                 notes = 'September 2026 Ongoing (August Due: Rs. 15k, Total Due: Rs. 30k)'
             WHERE id = ?
         ");
         $stmtUpdSep->execute([$sepPayrollId]);
         echo "Updated September 2026 Salary Record (ID: $sepPayrollId) -> Total Payable: Rs. 30k (Paid: Rs. 0, Total Due: Rs. 30k)\n";
     }
+    // Clean any duplicates for September
+    $db->prepare("DELETE FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-09' OR payroll_month = '2026-09') AND id != ?")->execute([$empId, $sepPayrollId]);
 
     // 4. Fix salary_payments table: link payment of Rs. 15,000 to July 2026
     $stmtPayCheck = $db->prepare("SELECT id, payment_date, payroll_id FROM salary_payments WHERE employee_id = ?");
