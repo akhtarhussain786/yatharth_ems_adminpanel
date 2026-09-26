@@ -432,9 +432,25 @@ function handleSalaryReportRequest($action, $param) {
                     $unpaidMonthsList[] = $mName;
                 }
 
+                // Calculate anniversary pay cycle from employee joining date
+                $joinDay = (int)date('d', strtotime($joiningDate));
+                $cycleStartStr = date('Y-m-', strtotime($m . '-01')) . str_pad(min(28, $joinDay), 2, '0', STR_PAD_LEFT);
+                if ($joinDay > 28) {
+                    $maxD = (int)date('t', strtotime($m . '-01'));
+                    $cycleStartStr = date('Y-m-', strtotime($m . '-01')) . str_pad(min($maxD, $joinDay), 2, '0', STR_PAD_LEFT);
+                }
+                $cycleNextAnniv = date('Y-m-d', strtotime('+1 month', strtotime($cycleStartStr)));
+                $cycleEndStr = date('Y-m-d', strtotime('-1 day', strtotime($cycleNextAnniv)));
+                $cycleDueDateStr = $cycleNextAnniv;
+                $cyclePeriodFormatted = date('d M Y', strtotime($cycleStartStr)) . ' – ' . date('d M Y', strtotime($cycleEndStr));
+                $dueDateFormatted = date('d M Y', strtotime($cycleDueDateStr));
+
                 $monthBreakdown[] = [
                     'month_year'     => $m,
                     'month_name'     => $mName,
+                    'cycle_period'   => $cyclePeriodFormatted,
+                    'due_date'       => $cycleDueDateStr,
+                    'due_date_label' => $dueDateFormatted,
                     'net_salary'     => $netSal,
                     'paid_amount'    => $paidAmt,
                     'remaining_due'  => $remDue,

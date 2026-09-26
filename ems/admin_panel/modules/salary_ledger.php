@@ -297,9 +297,25 @@ if ($employee_id > 0) {
                 $ledgerSummary['unpaid_months']++;
             }
 
+            // Calculate anniversary pay cycle from employee joining date
+            $joinDay = (int)date('d', strtotime($joiningDate));
+            $cycleStartStr = date('Y-m-', strtotime($m . '-01')) . str_pad(min(28, $joinDay), 2, '0', STR_PAD_LEFT);
+            if ($joinDay > 28) {
+                $maxD = (int)date('t', strtotime($m . '-01'));
+                $cycleStartStr = date('Y-m-', strtotime($m . '-01')) . str_pad(min($maxD, $joinDay), 2, '0', STR_PAD_LEFT);
+            }
+            $cycleNextAnniv = date('Y-m-d', strtotime('+1 month', strtotime($cycleStartStr)));
+            $cycleEndStr = date('Y-m-d', strtotime('-1 day', strtotime($cycleNextAnniv)));
+            $cycleDueDateStr = $cycleNextAnniv;
+            $cyclePeriodFormatted = date('d M Y', strtotime($cycleStartStr)) . ' – ' . date('d M Y', strtotime($cycleEndStr));
+            $dueDateFormatted = date('d M Y', strtotime($cycleDueDateStr));
+
             $employeeLedger[] = [
                 'month_year'     => $m,
                 'month_name'     => $mName,
+                'cycle_period'   => $cyclePeriodFormatted,
+                'due_date'       => $cycleDueDateStr,
+                'due_date_label' => $dueDateFormatted,
                 'payroll_id'     => $payrollId,
                 'net_salary'     => $netSal,
                 'previous_due'   => $prevDue,
@@ -683,13 +699,19 @@ require_once '../includes/header.php';
                             ?>
                                 <tr>
                                     <td>
-                                        <div class="font-weight-bold text-dark">
-                                            <?= htmlspecialchars($row['month_name']) ?>
+                                        <div class="font-weight-bold text-dark" style="font-size: 13.5px;">
+                                            <i class="fas fa-calendar-alt text-primary mr-1"></i> <?= htmlspecialchars($row['cycle_period']) ?>
                                             <?php if ($row['is_current']): ?>
-                                                <span class="badge badge-info ml-1" style="font-size: 10px;">Current</span>
+                                                <span class="badge badge-info ml-1" style="font-size: 10px;">Running</span>
                                             <?php endif; ?>
                                         </div>
-                                        <small class="text-muted"><?= $row['month_year'] ?></small>
+                                        <div class="mt-1" style="font-size: 11px;">
+                                            <span class="text-muted font-weight-bold"><?= htmlspecialchars($row['month_name']) ?></span>
+                                            <span class="mx-1">•</span>
+                                            <span class="badge badge-light border text-primary font-weight-bold">
+                                                <i class="fas fa-clock mr-1"></i> Salary Due: <?= htmlspecialchars($row['due_date_label']) ?>
+                                            </span>
+                                        </div>
                                     </td>
                                     <td class="text-right">
                                         ₹ <?= number_format((float)$selectedEmployee['salary'], 2) ?>
