@@ -8,15 +8,19 @@ function handleSalaryReportRequest($action, $param) {
     $data = json_decode($rawInput, true) ?? $_GET;
     $month = filterMonth($data['month'] ?? ($data['month_year'] ?? date('Y-m')));
 
-    $role = $auth['role'];
-    $isAdmin = in_array($role, ['super_admin', 'admin', 'hr', 'hr_admin', 'accounts_admin', 'it_admin']);
+    $role = $auth['role'] ?? '';
+    // Only super_admin, admin, hr, hr_admin have permission to view all employees
+    $isAdmin = in_array($role, ['super_admin', 'admin', 'hr', 'hr_admin']);
+    $userEmpId = (int)($auth['employee_id'] ?? 0);
 
     switch ($action) {
         case 'list':
             $deptId = $data['department_id'] ?? '';
             $status = $data['status'] ?? '';
+            $viewAll = !empty($data['all']) || !empty($data['view_all']) || !empty($deptId);
 
-            if ($isAdmin) {
+            // Admin viewing all employees (e.g. from Admin Panel)
+            if ($isAdmin && $viewAll) {
                 $sql = "SELECT id FROM employees WHERE status = 1";
                 $params = [];
                 if ($deptId) {
@@ -90,7 +94,12 @@ function handleSalaryReportRequest($action, $param) {
                 }
                 return ['success' => true, 'data' => $mapped, 'month' => $month];
             } else {
-                $calc = calculateEmployeeSalary($db, (int)$auth['employee_id'], $month);
+                // Every employee ONLY sees their own salary
+                if (!$userEmpId) {
+                    return ['success' => false, 'message' => 'No employee profile linked to this user account', 'data' => []];
+                }
+
+                $calc = calculateEmployeeSalary($db, $userEmpId, $month);
                 if (!$calc['success']) return $calc;
                 $emp = $calc['employee'];
                 $single = [
@@ -116,9 +125,12 @@ function handleSalaryReportRequest($action, $param) {
                         'unpaid_leave_days'    => (float)$calc['unpaid_leave_days'],
                         'paid_leave_days'      => (float)$calc['paid_leave_days'],
                         'earned_leave_days'    => (float)$calc['earned_leave_days'],
+                        'weekly_off_days'      => (float)$calc['weekly_off_days'],
+                        'holiday_days'         => (float)$calc['holiday_days'],
                         'attendance_deduction' => (float)$calc['attendance_deduction'],
                         'other_deductions'     => (float)$calc['other_deductions'],
                         'total_deductions'     => (float)$calc['total_deductions'],
+                        'bonus_amount'         => (float)$calc['bonus_amount'],
                         'total_earnings'       => (float)$calc['total_earnings'],
                         'current_net_salary'   => (float)$calc['current_net_salary'],
                         'net_salary'           => (float)$calc['current_net_salary'],
@@ -128,9 +140,10 @@ function handleSalaryReportRequest($action, $param) {
                         'remaining_due'        => (float)$calc['remaining_due'],
                         'payment_status'       => $calc['payment_status'],
                         'lock_status'          => $calc['lock_status'],
+                        'payroll_id'           => $calc['payroll_id'],
                     ],
                     'running_salary' => $calc['running_salary'],
-                    'payments'       => (function() use ($db, $auth) {
+                    'payments'       => (function() use ($db, $userEmpId) {
                         $stmtP = $db->prepare("
                             SELECT sp.*, u.username as created_by_name
                             FROM salary_payments sp
@@ -138,7 +151,7 @@ function handleSalaryReportRequest($action, $param) {
                             WHERE sp.employee_id = ?
                             ORDER BY sp.payment_date DESC, sp.id DESC
                         ");
-                        $stmtP->execute([(int)$auth['employee_id']]);
+                        $stmtP->execute([$userEmpId]);
                         return $stmtP->fetchAll();
                     })(),
                 ];
@@ -146,8 +159,10 @@ function handleSalaryReportRequest($action, $param) {
             }
 
         case 'slip':
-            $employeeId = $isAdmin ? intval($data['employee_id'] ?? $param) : (int)$auth['employee_id'];
-            $calc = calculateEmployeeSalary($db, $employeeId, $month);
+            $targetEmpId = ($isAdmin && !empty($data['employee_id'])) ? (int)$data['employee_id'] : $userEmpId;
+            if (!$targetEmpId) return ['success' => false, 'message' => 'Employee ID required'];
+
+            $calc = calculateEmployeeSalary($db, $targetEmpId, $month);
             if (!$calc['success']) return $calc;
 
             $emp = $calc['employee'];
@@ -195,7 +210,7 @@ function handleSalaryReportRequest($action, $param) {
                         'payroll_id'           => $calc['payroll_id'],
                     ],
                     'running_salary' => $calc['running_salary'],
-                    'payments'       => (function() use ($db, $employeeId) {
+                    'payments'       => (function() use ($db, $targetEmpId) {
                         $stmtPay = $db->prepare("
                             SELECT sp.*, u.username as created_by_name
                             FROM salary_payments sp
@@ -203,7 +218,7 @@ function handleSalaryReportRequest($action, $param) {
                             WHERE sp.employee_id = ?
                             ORDER BY sp.payment_date DESC, sp.id DESC
                         ");
-                        $stmtPay->execute([$employeeId]);
+                        $stmtPay->execute([$targetEmpId]);
                         return $stmtPay->fetchAll();
                     })(),
                 ],
@@ -211,12 +226,12 @@ function handleSalaryReportRequest($action, $param) {
 
         case 'history':
         case 'ledger':
-            $employeeId = $isAdmin ? intval($data['employee_id'] ?? $param) : (int)$auth['employee_id'];
-            if (!$employeeId) return ['success' => false, 'message' => 'Employee ID required'];
+            $targetEmpId = ($isAdmin && !empty($data['employee_id'])) ? (int)$data['employee_id'] : $userEmpId;
+            if (!$targetEmpId) return ['success' => false, 'message' => 'Employee ID required'];
 
             // Fetch employee joining date & basic info
             $stmtEmp = $db->prepare("SELECT id, first_name, last_name, employee_code, joining_date, salary FROM employees WHERE id = ?");
-            $stmtEmp->execute([$employeeId]);
+            $stmtEmp->execute([$targetEmpId]);
             $empObj = $stmtEmp->fetch();
             if (!$empObj) return ['success' => false, 'message' => 'Employee not found'];
 
@@ -237,7 +252,7 @@ function handleSalaryReportRequest($action, $param) {
 
             // Fetch existing salary processing records for all months
             $stmtProc = $db->prepare("SELECT * FROM salary_processing WHERE employee_id = ? ORDER BY month_year DESC");
-            $stmtProc->execute([$employeeId]);
+            $stmtProc->execute([$targetEmpId]);
             $procRecords = [];
             foreach ($stmtProc->fetchAll() as $pr) {
                 $procRecords[$pr['month_year']] = $pr;
@@ -253,7 +268,7 @@ function handleSalaryReportRequest($action, $param) {
                     WHERE sp.employee_id = ?
                     ORDER BY sp.payment_date DESC, sp.id DESC
                 ");
-                $stmtPay->execute([$employeeId]);
+                $stmtPay->execute([$targetEmpId]);
                 $allPayments = $stmtPay->fetchAll();
                 foreach ($allPayments as &$pItem) {
                     $pItem['amount'] = (float)($pItem['payment_amount'] ?? $pItem['amount'] ?? 0);
@@ -272,7 +287,7 @@ function handleSalaryReportRequest($action, $param) {
                     try {
                         // 1. July 2026 -> Check if exists or insert
                         $stmtJ = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-07'");
-                        $stmtJ->execute([$employeeId]);
+                        $stmtJ->execute([$targetEmpId]);
                         $jId = $stmtJ->fetchColumn();
                         if (!$jId) {
                             $db->prepare("
@@ -285,7 +300,7 @@ function handleSalaryReportRequest($action, $param) {
                                     15000.00, 15000.00, 0.00, 15000.00, 15000.00, 0.00,
                                     31, 'paid', 'finalized', 'July 2026 Salary paid on 13 Aug 2026', NOW()
                                 )
-                            ")->execute([$employeeId]);
+                            ")->execute([$targetEmpId]);
                             $jId = (int)$db->lastInsertId();
                         } else {
                             $db->prepare("
@@ -306,7 +321,7 @@ function handleSalaryReportRequest($action, $param) {
 
                         // 2. Ensure August is UNPAID (Due: 15,000)
                         $stmtA = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-08'");
-                        $stmtA->execute([$employeeId]);
+                        $stmtA->execute([$targetEmpId]);
                         $aId = $stmtA->fetchColumn();
                         if (!$aId) {
                             $db->prepare("
@@ -319,7 +334,7 @@ function handleSalaryReportRequest($action, $param) {
                                     15000.00, 15000.00, 0.00, 15000.00, 0.00, 15000.00,
                                     31, 'unpaid', 'generated', 'August 2026 Salary Pending', NOW()
                                 )
-                            ")->execute([$employeeId]);
+                            ")->execute([$targetEmpId]);
                         } else {
                             $db->prepare("
                                 UPDATE salary_processing SET
@@ -338,7 +353,7 @@ function handleSalaryReportRequest($action, $param) {
 
                         // 3. Ensure September is UNPAID (Due: 30,000)
                         $stmtS = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-09'");
-                        $stmtS->execute([$employeeId]);
+                        $stmtS->execute([$targetEmpId]);
                         $sId = $stmtS->fetchColumn();
                         if ($sId) {
                             $db->prepare("
@@ -366,18 +381,18 @@ function handleSalaryReportRequest($action, $param) {
                                     reference_no = 'NEFT8456345432676223',
                                     notes = 'July 2026 Salary payment received on 13 Aug 2026'
                                 WHERE employee_id = ?
-                            ")->execute([$jId, $employeeId]);
+                            ")->execute([$jId, $targetEmpId]);
                         }
 
                         // Re-fetch updated records
                         $stmtProc = $db->prepare("SELECT * FROM salary_processing WHERE employee_id = ? ORDER BY month_year DESC");
-                        $stmtProc->execute([$employeeId]);
+                        $stmtProc->execute([$targetEmpId]);
                         $procRecords = [];
                         foreach ($stmtProc->fetchAll() as $pr) {
                             $procRecords[$pr['month_year']] = $pr;
                         }
 
-                        $stmtPay->execute([$employeeId]);
+                        $stmtPay->execute([$targetEmpId]);
                         $allPayments = $stmtPay->fetchAll();
                     } catch (Exception $e) {}
                 }
@@ -403,7 +418,7 @@ function handleSalaryReportRequest($action, $param) {
                     $remDue = (float)($pr['remaining_due'] ?? max(0, $netSal - $paidAmt));
                     $payrollId = (int)$pr['id'];
                 } else {
-                    $calc = calculateEmployeeSalary($db, $employeeId, $m);
+                    $calc = calculateEmployeeSalary($db, $targetEmpId, $m);
                     $netSal = (float)($calc['current_net_salary'] ?? $calc['monthly_salary'] ?? 0);
                     $paidAmt = (float)($calc['paid_amount'] ?? 0);
                     $status = strtolower($calc['payment_status'] ?? ($paidAmt >= $netSal ? 'paid' : ($paidAmt > 0 ? 'partially_paid' : 'unpaid')));
@@ -412,7 +427,7 @@ function handleSalaryReportRequest($action, $param) {
                 }
 
                 // Filter payments belonging strictly to this month/payroll
-                $monthPayments = array_values(array_filter($allPayments, function($p) use ($payrollId, $employeeId, $m) {
+                $monthPayments = array_values(array_filter($allPayments, function($p) use ($payrollId, $targetEmpId, $m) {
                     if (!empty($p['payroll_id']) && (int)$p['payroll_id'] > 0) {
                         return ($payrollId > 0 && (int)$p['payroll_id'] === $payrollId);
                     }
@@ -487,8 +502,8 @@ function handleSalaryReportRequest($action, $param) {
             ];
 
         case 'payments':
-            $employeeId = $isAdmin ? intval($data['employee_id'] ?? $param) : (int)$auth['employee_id'];
-            if (!$employeeId) return ['success' => false, 'message' => 'Employee ID required'];
+            $targetEmpId = ($isAdmin && !empty($data['employee_id'])) ? (int)$data['employee_id'] : $userEmpId;
+            if (!$targetEmpId) return ['success' => false, 'message' => 'Employee ID required'];
 
             $payrollId = !empty($data['payroll_id']) ? (int)$data['payroll_id'] : null;
             $sql = "
@@ -497,7 +512,7 @@ function handleSalaryReportRequest($action, $param) {
                 LEFT JOIN users u ON u.id = sp.created_by
                 WHERE sp.employee_id = ?
             ";
-            $params = [$employeeId];
+            $params = [$targetEmpId];
             if ($payrollId) {
                 $sql .= " AND sp.payroll_id = ?";
                 $params[] = $payrollId;
@@ -524,8 +539,8 @@ function handleSalaryReportRequest($action, $param) {
             return recordSalaryPayment($db, $employeeId, $amount, $paymentDate, $paymentMethod, $referenceNo, $notes, $auth['user_id'], $targetPayrollId);
 
         case 'running':
-            $employeeId = $isAdmin ? intval($data['employee_id'] ?? $param) : (int)$auth['employee_id'];
-            $calc = calculateEmployeeSalary($db, $employeeId, date('Y-m'));
+            $targetEmpId = ($isAdmin && !empty($data['employee_id'])) ? (int)$data['employee_id'] : $userEmpId;
+            $calc = calculateEmployeeSalary($db, $targetEmpId, date('Y-m'));
             return ['success' => true, 'data' => $calc['running_salary'] ?? null];
 
         case 'lock':
