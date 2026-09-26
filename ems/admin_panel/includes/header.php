@@ -20,15 +20,20 @@
 
 <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
-        <div class="brand-logo"><i class="fa-solid fa-y"></i></div>
-        <div class="brand-text">
-            <h6>Yatharth EMS</h6>
-<small>Employee Management System</small>
+        <div class="d-flex align-items-center gap-2 flex-grow-1">
+            <div class="brand-logo"><i class="fa-solid fa-shapes"></i></div>
+            <div class="brand-text">
+                <h6>Yatharth</h6>
+                <small>EMS Platform</small>
+            </div>
         </div>
+        <button class="sidebar-collapse-btn d-none d-lg-flex" onclick="toggleSidebar()" title="Collapse Sidebar">
+            <i class="fas fa-angle-double-left"></i>
+        </button>
     </div>
     <div class="sidebar-menu">
         <div class="menu-label">Main Menu</div>
-        <ul class="list-unstyled mb-0">
+        <ul class="list-unstyled mb-0 nav-pills-list">
             <?php foreach (getMenuItems() as $item):
                 if (!empty($item['module']) && !hasModuleAccess($item['module'])) continue;
                 $mn = basename($item['link'], '.php');
@@ -43,6 +48,12 @@
             </li>
             <?php endforeach; ?>
         </ul>
+    </div>
+    <div class="sidebar-footer">
+        <a href="<?php echo BASE_URL; ?>logout" class="sidebar-logout-btn">
+            <i class="fas fa-sign-out-alt"></i>
+            <span>Logout</span>
+        </a>
     </div>
 </aside>
 
