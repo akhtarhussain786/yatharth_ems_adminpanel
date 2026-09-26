@@ -425,7 +425,6 @@ function handleSalaryReportRequest($action, $param) {
                 // Accumulate totals
                 $totalEarned += $netSal;
                 $totalPaid += $paidAmt;
-                $totalDue += $remDue;
 
                 if ($status === 'paid' || $paidAmt >= $netSal) {
                     $paidMonthsList[] = $mName;
@@ -457,7 +456,7 @@ function handleSalaryReportRequest($action, $param) {
                     'summary' => [
                         'total_earned'          => $totalEarned,
                         'total_paid'            => $totalPaid,
-                        'total_outstanding_due' => $totalDue,
+                        'total_outstanding_due' => max(0, $totalEarned - $totalPaid),
                         'total_months'          => count($months),
                         'paid_months_count'     => count($paidMonthsList),
                         'unpaid_months_count'   => count($unpaidMonthsList),

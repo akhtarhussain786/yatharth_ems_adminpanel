@@ -289,7 +289,6 @@ if ($employee_id > 0) {
 
             $ledgerSummary['total_earned'] += $netSal;
             $ledgerSummary['total_paid'] += $paidAmt;
-            $ledgerSummary['total_due'] += $remDue;
             $ledgerSummary['total_months']++;
 
             if ($status === 'paid' || ($paidAmt >= $netSal && $netSal > 0)) {
@@ -313,6 +312,9 @@ if ($employee_id > 0) {
                 'raw_data'       => $calcObj,
             ];
         }
+
+        // Total Outstanding Dues is exactly Total Earned minus Total Paid
+        $ledgerSummary['total_due'] = max(0, $ledgerSummary['total_earned'] - $ledgerSummary['total_paid']);
     }
 } else {
     // All Employees Summary Overview
@@ -354,7 +356,6 @@ if ($employee_id > 0) {
 
                 $eEarned += $n;
                 $ePaid += $p;
-                $eDue += $d;
                 $mCount++;
 
                 if ($st === 'paid' || ($p >= $n && $n > 0)) {
@@ -363,6 +364,7 @@ if ($employee_id > 0) {
                     $unpaidCount++;
                 }
             }
+            $eDue = max(0, $eEarned - $ePaid);
         } catch (Throwable $e) {}
 
         $grandTotals['total_payroll'] += $eEarned;
