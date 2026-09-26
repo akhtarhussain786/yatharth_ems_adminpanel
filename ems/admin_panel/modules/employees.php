@@ -6,69 +6,25 @@ requireModuleAccess('employees');
 $message = '';
 
 // =============================================
-// Auto Generate Dynamic Branch-Based Employee Code (SIW001, PAT001, BHO001...)
+// Auto Generate Employee Code (YGI001, YGI002...)
 // =============================================
-function generateEmployeeCode($pdo, $branchId = null) {
-    if (empty($branchId)) {
-        throw new Exception("Branch is required to generate employee code");
-    }
+function generateEmployeeCode($pdo) {
+    $prefix = 'YGI';
+    $stmt = $pdo->query("SELECT employee_code FROM employees WHERE employee_code LIKE 'YGI%' ORDER BY employee_code DESC LIMIT 1");
+    $last = $stmt->fetchColumn();
 
-    // Always fetch branch strictly from database (never trust frontend branch name)
-    $stmt = $pdo->prepare("SELECT id, branch_name, branch_code, status FROM branches WHERE id = ?");
-    $stmt->execute([(int)$branchId]);
-    $branch = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$branch) {
-        throw new Exception("Selected branch does not exist");
-    }
-    if ((int)$branch['status'] !== 1) {
-        throw new Exception("Selected branch is inactive");
-    }
-
-    $rawName = trim($branch['branch_name'] ?? '');
-    if ($rawName === '') {
-        throw new Exception("Branch name is empty in database");
-    }
-
-    // Extract first 3 alphabetic letters in UPPERCASE
-    // Example: "Siwan Branch" -> "SIW", "Patna" -> "PAT", "Bhopal Main" -> "BHO", "New Delhi" -> "NEW"
-    $cleanLetters = preg_replace('/[^A-Za-z]/', '', $rawName);
-    if (strlen($cleanLetters) >= 3) {
-        $prefix = strtoupper(substr($cleanLetters, 0, 3));
-    } elseif (strlen($cleanLetters) > 0) {
-        $prefix = str_pad(strtoupper($cleanLetters), 3, 'X');
+    if ($last) {
+        $num = (int)substr($last, 3) + 1;
     } else {
-        $cleanCode = preg_replace('/[^A-Za-z]/', '', $branch['branch_code'] ?? '');
-        $prefix = strlen($cleanCode) >= 3 ? strtoupper(substr($cleanCode, 0, 3)) : 'EMP';
+        $num = 1;
     }
 
-    // Retrieve all existing employee codes starting with this prefix to accurately extract the highest numeric integer
-    $prefixLen = strlen($prefix);
-    $stmt = $pdo->prepare("SELECT employee_code FROM employees WHERE employee_code LIKE ?");
-    $stmt->execute([$prefix . '%']);
-    $existingCodes = $stmt->fetchAll(PDO::FETCH_COLUMN);
-
-    $maxNum = 0;
-    foreach ($existingCodes as $c) {
-        $numPart = substr($c, $prefixLen);
-        if ($numPart !== '' && ctype_digit($numPart)) {
-            $val = (int)$numPart;
-            if ($val > $maxNum) {
-                $maxNum = $val;
-            }
-        }
-    }
-
-    $num = $maxNum + 1;
+    // Ensure uniqueness (skip if code already exists)
     $code = $prefix . str_pad($num, 3, '0', STR_PAD_LEFT);
-
-    // Concurrency & duplicate safety check loop
-    $chk = $pdo->prepare("SELECT COUNT(*) FROM employees WHERE employee_code = ?");
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM employees WHERE employee_code = ?");
     while (true) {
-        $chk->execute([$code]);
-        if ((int)$chk->fetchColumn() === 0) {
-            break;
-        }
+        $stmt->execute([$code]);
+        if ($stmt->fetchColumn() == 0) break;
         $num++;
         $code = $prefix . str_pad($num, 3, '0', STR_PAD_LEFT);
     }
@@ -76,24 +32,12 @@ function generateEmployeeCode($pdo, $branchId = null) {
     return $code;
 }
 
-// AJAX endpoint for live dynamic code generation in Add modal
-if (isset($_GET['action']) && $_GET['action'] === 'next_code') {
-    header('Content-Type: application/json');
-    $bId = (int)($_GET['branch_id'] ?? 0);
-    try {
-        $code = generateEmployeeCode($pdo, $bId);
-        echo json_encode(['success' => true, 'employee_code' => $code]);
-    } catch (Exception $e) {
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
-    }
-    exit;
-}
-
 // Add / Edit
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = $_POST['action'];
     $first_name = sanitize($_POST['first_name']);
     $last_name = sanitize($_POST['last_name'] ?? '');
+    $employee_code = sanitize($_POST['employee_code'] ?? '');
     $branch_id = !empty($_POST['branch_id']) ? (int)$_POST['branch_id'] : null;
     $mobile = sanitize($_POST['mobile'] ?? '');
     $email = sanitize($_POST['email'] ?? '');
@@ -114,12 +58,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $pdo->beginTransaction();
 
         if ($action == 'add') {
-            if (!$branch_id) {
-                throw new Exception('Branch is required to add an employee');
+            // Auto-generate code if not provided
+            if (empty($employee_code)) {
+                $employee_code = generateEmployeeCode($pdo);
             }
-
-            // Always generate dynamic branch-based code on backend from verified DB branch
-            $employee_code = generateEmployeeCode($pdo, $branch_id);
 
             $chk = $pdo->prepare("SELECT id FROM employees WHERE employee_code = ?");
             $chk->execute([$employee_code]);
@@ -341,15 +283,6 @@ require_once '../includes/header.php';
     <div class="card-body py-2">
         <form method="GET" class="row g-2 align-items-end">
             <div class="col-md-3">
-                <label class="form-label mb-1 small text-muted">Branch</label>
-                <select name="branch_id" class="form-select form-select-sm" onchange="this.form.submit()">
-                    <option value="">All Branches</option>
-                    <?php foreach ($branches as $b): ?>
-                    <option value="<?php echo $b['id']; ?>" <?php echo (string)$filterBranch === (string)$b['id'] ? 'selected' : ''; ?>><?php echo sanitize($b['branch_name']); ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <div class="col-md-2">
                 <label class="form-label mb-1 small text-muted">Department</label>
                 <select name="department_id" class="form-select form-select-sm" onchange="this.form.submit()">
                     <option value="">All Departments</option>
@@ -358,7 +291,7 @@ require_once '../includes/header.php';
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-md-3">
                 <label class="form-label mb-1 small text-muted">Role</label>
                 <select name="role_id" class="form-select form-select-sm" onchange="this.form.submit()">
                     <option value="">All Roles</option>
@@ -367,7 +300,7 @@ require_once '../includes/header.php';
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-md-3">
                 <label class="form-label mb-1 small text-muted">Status</label>
                 <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
                     <option value="">All</option>
@@ -377,7 +310,7 @@ require_once '../includes/header.php';
             </div>
             <div class="col-md-3">
                 <span class="text-muted small me-2"><?php echo count($employees); ?> employee<?php echo count($employees) === 1 ? '' : 's'; ?></span>
-                <?php if ($filterBranch !== '' || $filterDept !== '' || $filterStatus !== '' || $filterRole !== ''): ?>
+                <?php if ($filterDept !== '' || $filterStatus !== '' || $filterRole !== ''): ?>
                 <a href="<?php echo BASE_URL; ?>modules/employees" class="btn btn-sm btn-outline-secondary">Clear</a>
                 <?php endif; ?>
             </div>
@@ -390,14 +323,13 @@ require_once '../includes/header.php';
         <div class="table-responsive">
             <table class="table table-hover datatable mb-0">
                 <thead>
-                    <tr><th>Code</th><th>Name</th><th>Branch</th><th>Department</th><th>Designation</th><th>Mobile</th><th>Role</th><th>Type</th><th>Device</th><th>Face</th><th>Status</th><th>Actions</th></tr>
+                    <tr><th>Code</th><th>Name</th><th>Department</th><th>Designation</th><th>Mobile</th><th>Role</th><th>Type</th><th>Device</th><th>Face</th><th>Status</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                     <?php foreach ($employees as $emp): ?>
                     <tr>
                         <td><span class="badge bg-light text-primary border fw-bold"><?php echo sanitize($emp['employee_code']); ?></span></td>
                         <td><?php echo sanitize($emp['first_name'] . ' ' . $emp['last_name']); ?></td>
-                        <td><span class="badge bg-light text-dark border"><?php echo sanitize($emp['branch_name'] ?? '-'); ?></span></td>
                         <td><?php echo sanitize($emp['department_name'] ?? '-'); ?></td>
                         <td><?php echo sanitize($emp['designation_name'] ?? '-'); ?></td>
                         <td><?php echo sanitize($emp['mobile']); ?></td>
@@ -459,19 +391,8 @@ require_once '../includes/header.php';
                     <input type="hidden" name="id" id="formId" value="">
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <label class="form-label fw-bold">Branch <span class="text-danger">*</span></label>
-                            <select name="branch_id" id="f_branch" class="form-select" required onchange="onBranchChange(this.value)">
-                                <option value="">-- Select Branch --</option>
-                                <?php foreach ($branches as $b): ?>
-                                <option value="<?php echo $b['id']; ?>"><?php echo sanitize($b['branch_name']); ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                            <small class="text-muted" id="branchHelpText">Employee code prefix is generated from branch name</small>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold">Employee Code <span class="text-danger">*</span></label>
-                            <input type="text" name="employee_code" id="f_code" class="form-control bg-light" placeholder="Auto-generated on branch selection" readonly required>
-                            <small class="text-muted">Generated dynamically per branch (e.g. SIW001, PAT001)</small>
+                            <label class="form-label">Employee Code *</label>
+                            <input type="text" name="employee_code" id="f_code" class="form-control" required>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">First Name *</label>
@@ -612,35 +533,7 @@ require_once '../includes/header.php';
 
 <script>
 var allDesignations = <?php echo json_encode($designations); ?>;
-
-function onBranchChange(branchId) {
-    if (document.getElementById('formAction').value !== 'add') {
-        // In edit mode, do not change existing employee code
-        return;
-    }
-    if (!branchId) {
-        document.getElementById('f_code').value = '';
-        return;
-    }
-    document.getElementById('f_code').value = 'Generating...';
-    fetch('employees?action=next_code&branch_id=' + encodeURIComponent(branchId))
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
-            if (res.success) {
-                document.getElementById('f_code').value = res.employee_code;
-                if (document.getElementById('createLoginToggle').checked && !document.getElementById('f_username').value) {
-                    document.getElementById('f_username').placeholder = 'Auto: ' + res.employee_code;
-                }
-            } else {
-                document.getElementById('f_code').value = '';
-                alert('Branch Error: ' + res.message);
-            }
-        })
-        .catch(function(err) {
-            console.error(err);
-            document.getElementById('f_code').value = '';
-        });
-}
+var nextEmployeeCode = '<?php echo generateEmployeeCode($pdo); ?>';
 
 function togglePasswordVisibility(inputId, iconId) {
     var input = document.getElementById(inputId);
@@ -662,9 +555,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('modalTitle').textContent = 'Add Employee';
         document.getElementById('formAction').value = 'add';
         document.getElementById('formId').value = '';
-        document.getElementById('f_branch').value = '';
-        document.getElementById('f_branch').disabled = false;
-        document.getElementById('f_code').value = '';
+        document.getElementById('f_code').value = nextEmployeeCode;
         document.getElementById('f_code').readOnly = true;
         document.getElementById('f_fname').value = '';
         document.getElementById('f_lname').value = '';
@@ -693,17 +584,11 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('f_role').value = '';
         var icon = document.getElementById('f_password_icon');
         if (icon) { icon.className = 'fas fa-eye'; }
-
-        // Default to first branch if available
-        var branchSelect = document.getElementById('f_branch');
-        if (branchSelect && branchSelect.options.length > 1) {
-            branchSelect.selectedIndex = 1;
-            onBranchChange(branchSelect.value);
-        }
     });
 
     document.getElementById('employeeModal').addEventListener('show.bs.modal', function(event) {
         if (document.getElementById('formAction').value === 'add') {
+            document.getElementById('f_code').value = nextEmployeeCode;
             document.getElementById('f_code').readOnly = true;
         } else {
             document.getElementById('f_code').readOnly = true; // Fixed on edit
