@@ -1255,4 +1255,161 @@ function runSchemaMigrations($db)
         $setPerms('marketing_executive', $marketingExecPermissions);
         $setPerms('marketing', $marketingExecPermissions);
     });
+
+    // ---------------------------------------------------------------
+    // Salary / Payroll Upgrade: Joining & Relieving date, Ledger, Payments, Carry Forward
+    // ---------------------------------------------------------------
+    SchemaGuard::ensure($db, 'salary_ledger_upgrade_v1', function ($db) {
+        // 1. Relieving date in employees table
+        SchemaGuard::addColumns($db, 'employees', [
+            'relieving_date' => 'DATE DEFAULT NULL',
+        ]);
+
+        // 2. salary_processing table reconcile and full ledger columns
+        SchemaGuard::reconcile($db, "CREATE TABLE IF NOT EXISTS salary_processing (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            employee_id INT NOT NULL,
+            month_year VARCHAR(7) NOT NULL,
+            payroll_month VARCHAR(7) DEFAULT NULL,
+            joining_date_snapshot DATE DEFAULT NULL,
+            relieving_date_snapshot DATE DEFAULT NULL,
+            eligible_days INT DEFAULT 0,
+            total_days_in_month INT DEFAULT 30,
+            daily_rate DECIMAL(12,2) DEFAULT 0.00,
+            base_earned_salary DECIMAL(12,2) DEFAULT 0.00,
+            basic_salary DECIMAL(12,2) DEFAULT 0.00,
+            allowances DECIMAL(12,2) DEFAULT 0.00,
+            deductions DECIMAL(12,2) DEFAULT 0.00,
+            net_salary DECIMAL(12,2) DEFAULT 0.00,
+            current_net_salary DECIMAL(12,2) DEFAULT 0.00,
+            previous_due DECIMAL(12,2) DEFAULT 0.00,
+            total_payable DECIMAL(12,2) DEFAULT 0.00,
+            paid_amount DECIMAL(12,2) DEFAULT 0.00,
+            remaining_due DECIMAL(12,2) DEFAULT 0.00,
+            present_days DECIMAL(5,2) DEFAULT 0.00,
+            paid_leave_days DECIMAL(5,2) DEFAULT 0.00,
+            unpaid_leave_days DECIMAL(5,2) DEFAULT 0.00,
+            absent_days DECIMAL(5,2) DEFAULT 0.00,
+            late_days DECIMAL(5,2) DEFAULT 0.00,
+            half_days DECIMAL(5,2) DEFAULT 0.00,
+            weekly_off_days DECIMAL(5,2) DEFAULT 0.00,
+            holiday_days DECIMAL(5,2) DEFAULT 0.00,
+            attendance_deduction DECIMAL(12,2) DEFAULT 0.00,
+            bonus_amount DECIMAL(12,2) DEFAULT 0.00,
+            incentive_amount DECIMAL(12,2) DEFAULT 0.00,
+            overtime_hours DECIMAL(5,2) DEFAULT 0.00,
+            overtime_amount DECIMAL(12,2) DEFAULT 0.00,
+            other_earnings DECIMAL(12,2) DEFAULT 0.00,
+            advance_deduction DECIMAL(12,2) DEFAULT 0.00,
+            other_deductions DECIMAL(12,2) DEFAULT 0.00,
+            payment_status VARCHAR(30) DEFAULT 'unpaid',
+            lock_status VARCHAR(30) DEFAULT 'generated',
+            processed_by INT DEFAULT NULL,
+            finalized_by INT DEFAULT NULL,
+            finalized_at DATETIME DEFAULT NULL,
+            paid_date DATE DEFAULT NULL,
+            remarks TEXT DEFAULT NULL,
+            notes TEXT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_salary_emp_month (employee_id, month_year),
+            INDEX idx_salary_payment_status (payment_status),
+            INDEX idx_salary_lock_status (lock_status)
+        ) ENGINE=InnoDB");
+
+        // Add any missing columns to existing salary_processing table
+        SchemaGuard::addColumns($db, 'salary_processing', [
+            'payroll_month'           => 'VARCHAR(7) DEFAULT NULL',
+            'joining_date_snapshot'   => 'DATE DEFAULT NULL',
+            'relieving_date_snapshot' => 'DATE DEFAULT NULL',
+            'eligible_days'           => 'INT DEFAULT 0',
+            'total_days_in_month'     => 'INT DEFAULT 30',
+            'daily_rate'              => 'DECIMAL(12,2) DEFAULT 0.00',
+            'base_earned_salary'      => 'DECIMAL(12,2) DEFAULT 0.00',
+            'current_net_salary'      => 'DECIMAL(12,2) DEFAULT 0.00',
+            'previous_due'            => 'DECIMAL(12,2) DEFAULT 0.00',
+            'total_payable'           => 'DECIMAL(12,2) DEFAULT 0.00',
+            'paid_amount'             => 'DECIMAL(12,2) DEFAULT 0.00',
+            'remaining_due'           => 'DECIMAL(12,2) DEFAULT 0.00',
+            'paid_leave_days'         => 'DECIMAL(5,2) DEFAULT 0.00',
+            'unpaid_leave_days'       => 'DECIMAL(5,2) DEFAULT 0.00',
+            'weekly_off_days'         => 'DECIMAL(5,2) DEFAULT 0.00',
+            'holiday_days'            => 'DECIMAL(5,2) DEFAULT 0.00',
+            'attendance_deduction'    => 'DECIMAL(12,2) DEFAULT 0.00',
+            'bonus_amount'            => 'DECIMAL(12,2) DEFAULT 0.00',
+            'incentive_amount'        => 'DECIMAL(12,2) DEFAULT 0.00',
+            'other_earnings'          => 'DECIMAL(12,2) DEFAULT 0.00',
+            'advance_deduction'       => 'DECIMAL(12,2) DEFAULT 0.00',
+            'other_deductions'        => 'DECIMAL(12,2) DEFAULT 0.00',
+            'payment_status'          => "VARCHAR(30) DEFAULT 'unpaid'",
+            'lock_status'             => "VARCHAR(30) DEFAULT 'generated'",
+            'finalized_by'            => 'INT DEFAULT NULL',
+            'finalized_at'            => 'DATETIME DEFAULT NULL',
+            'notes'                   => 'TEXT DEFAULT NULL',
+        ]);
+
+        // 3. Permanent salary payment transaction records
+        SchemaGuard::reconcile($db, "CREATE TABLE IF NOT EXISTS salary_payments (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            payroll_id INT DEFAULT NULL,
+            employee_id INT NOT NULL,
+            payment_amount DECIMAL(12,2) NOT NULL,
+            payment_date DATE NOT NULL,
+            payment_method VARCHAR(50) DEFAULT 'bank_transfer',
+            reference_no VARCHAR(100) DEFAULT NULL,
+            notes TEXT DEFAULT NULL,
+            created_by INT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_pay_emp (employee_id, payment_date),
+            INDEX idx_pay_payroll (payroll_id)
+        ) ENGINE=InnoDB");
+
+        // 4. Permanent audit log for salary operations
+        SchemaGuard::reconcile($db, "CREATE TABLE IF NOT EXISTS salary_audit_logs (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            payroll_id INT DEFAULT NULL,
+            employee_id INT NOT NULL,
+            action VARCHAR(100) NOT NULL,
+            old_data TEXT DEFAULT NULL,
+            new_data TEXT DEFAULT NULL,
+            user_id INT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_salary_audit_emp (employee_id),
+            INDEX idx_salary_audit_action (action)
+        ) ENGINE=InnoDB");
+    });
+
+    // ---------------------------------------------------------------
+    // branches & employees.branch_id for Dynamic Branch-Based Code Generation
+    // ---------------------------------------------------------------
+    SchemaGuard::ensure($db, 'branches_and_employee_branch_v1', function ($db) {
+        SchemaGuard::reconcile($db, "CREATE TABLE IF NOT EXISTS branches (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            branch_name VARCHAR(150) NOT NULL,
+            branch_code VARCHAR(50) DEFAULT NULL,
+            latitude DECIMAL(10,8) DEFAULT NULL,
+            longitude DECIMAL(11,8) DEFAULT NULL,
+            attendance_radius INT DEFAULT 100,
+            status TINYINT(1) DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_branch_status (status)
+        ) ENGINE=InnoDB");
+
+        SchemaGuard::addColumns($db, 'employees', [
+            'branch_id' => 'INT DEFAULT NULL',
+        ]);
+
+        try {
+            $count = $db->query("SELECT COUNT(*) FROM branches")->fetchColumn();
+            if ($count == 0) {
+                $db->exec("INSERT INTO branches (branch_name, branch_code, status) VALUES 
+                    ('Siwan Branch', 'SIW', 1),
+                    ('Patna Branch', 'PAT', 1),
+                    ('Bhopal Branch', 'BHO', 1),
+                    ('Main Branch', 'MAI', 1)");
+            }
+        } catch (Exception $e) {}
+    });
 }
+

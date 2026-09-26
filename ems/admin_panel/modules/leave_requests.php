@@ -1,6 +1,6 @@
 <?php
 require_once '../includes/config.php';
-if (!isLoggedIn()) redirect('../index.php');
+if (!isLoggedIn()) redirect(BASE_URL . 'index');
 requireModuleAccess('leave_requests');
 require_once __DIR__ . '/../../backend/helpers/fcm_helper.php';
 

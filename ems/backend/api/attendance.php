@@ -304,7 +304,7 @@ function checkIn($db, $auth, $data) {
             $isFieldWork = 1;
             $locationType = 'field';
             // Optional distance calculation
-            $office = getOfficeLocation($db);
+            $office = getOfficeLocation($db, $auth['employee_id']);
             if ($office) {
                 $distanceFromOffice = calculateDistance($latitude, $longitude, $office['latitude'], $office['longitude']);
             }
@@ -668,8 +668,23 @@ function isSunday($date = null) {
     return date('w', strtotime($d)) == 0;
 }
 
-function getOfficeLocation($db) {
+function getOfficeLocation($db, $employeeId = null) {
     try {
+        if ($employeeId) {
+            $stmt = $db->prepare("SELECT b.latitude, b.longitude, b.attendance_radius as radius 
+                                  FROM employees e 
+                                  JOIN branches b ON b.id = e.branch_id 
+                                  WHERE e.id = ? AND b.status = 1 AND b.latitude IS NOT NULL AND b.longitude IS NOT NULL");
+            $stmt->execute([$employeeId]);
+            $b = $stmt->fetch();
+            if ($b && $b['latitude'] !== null && $b['longitude'] !== null && (float)$b['latitude'] != 0) {
+                return [
+                    'latitude' => (float)$b['latitude'],
+                    'longitude' => (float)$b['longitude'],
+                    'radius_km' => ((int)($b['radius'] ?: 200)) / 1000
+                ];
+            }
+        }
         // Same row the settings endpoint reports, deterministically.
         $stmt = $db->query("SELECT latitude, longitude, radius FROM office_locations WHERE status = 1 ORDER BY id LIMIT 1");
         $settings = $stmt->fetch();
@@ -677,9 +692,9 @@ function getOfficeLocation($db) {
             return ['latitude' => 28.6139, 'longitude' => 77.2090, 'radius_km' => 5.00];
         }
         return [
-            'latitude' => $settings['latitude'],
-            'longitude' => $settings['longitude'],
-            'radius_km' => $settings['radius'] / 1000
+            'latitude' => (float)$settings['latitude'],
+            'longitude' => (float)$settings['longitude'],
+            'radius_km' => ($settings['radius'] ?? 200) / 1000
         ];
     } catch (Exception $e) {
         return ['latitude' => 28.6139, 'longitude' => 77.2090, 'radius_km' => 5.00];

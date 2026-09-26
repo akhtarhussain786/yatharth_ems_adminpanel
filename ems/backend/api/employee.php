@@ -179,14 +179,17 @@ function changePassword($db, $auth) {
 
 function getEmployeeList($db, $param) {
     $departmentId = $_GET['department_id'] ?? null;
+    $branchId = $_GET['branch_id'] ?? null;
     $search = $_GET['search'] ?? null;
 
     $sql = "SELECT e.*, d.name as department_name, des.name as designation_name,
+                   b.branch_name, b.branch_code,
                    u.id as user_id, u.role_id as user_role_id, u.status as user_active,
                    u.username, r.name as role_name, r.description as role_display
             FROM employees e
             LEFT JOIN departments d ON d.id = e.department_id
             LEFT JOIN designations des ON des.id = e.designation_id
+            LEFT JOIN branches b ON b.id = e.branch_id
             LEFT JOIN users u ON u.id = e.user_id
             LEFT JOIN roles r ON r.id = u.role_id
             WHERE 1=1";
@@ -195,6 +198,10 @@ function getEmployeeList($db, $param) {
     if ($departmentId) {
         $sql .= " AND e.department_id = :dept_id";
         $params[':dept_id'] = $departmentId;
+    }
+    if ($branchId) {
+        $sql .= " AND e.branch_id = :branch_id";
+        $params[':branch_id'] = $branchId;
     }
     if ($search) {
         $sql .= " AND (e.first_name LIKE :search OR e.last_name LIKE :search2 OR e.employee_code LIKE :search3)";
@@ -211,12 +218,74 @@ function getEmployeeList($db, $param) {
     return ['success' => true, 'data' => $employees];
 }
 
+function generateBranchEmployeeCode($db, $branchId) {
+    if (empty($branchId)) {
+        throw new Exception("Branch is required to generate employee code");
+    }
+
+    $stmt = $db->prepare("SELECT id, branch_name, branch_code, status FROM branches WHERE id = ?");
+    $stmt->execute([(int)$branchId]);
+    $branch = $stmt->fetch();
+
+    if (!$branch) {
+        throw new Exception("Selected branch does not exist");
+    }
+    if ((int)$branch['status'] !== 1) {
+        throw new Exception("Selected branch is inactive");
+    }
+
+    $rawName = trim($branch['branch_name'] ?? '');
+    if ($rawName === '') {
+        throw new Exception("Branch name is empty in database");
+    }
+
+    $cleanLetters = preg_replace('/[^A-Za-z]/', '', $rawName);
+    if (strlen($cleanLetters) >= 3) {
+        $prefix = strtoupper(substr($cleanLetters, 0, 3));
+    } elseif (strlen($cleanLetters) > 0) {
+        $prefix = str_pad(strtoupper($cleanLetters), 3, 'X');
+    } else {
+        $cleanCode = preg_replace('/[^A-Za-z]/', '', $branch['branch_code'] ?? '');
+        $prefix = strlen($cleanCode) >= 3 ? strtoupper(substr($cleanCode, 0, 3)) : 'EMP';
+    }
+
+    $prefixLen = strlen($prefix);
+    $stmt = $db->prepare("SELECT employee_code FROM employees WHERE employee_code LIKE ?");
+    $stmt->execute([$prefix . '%']);
+    $existingCodes = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+    $maxNum = 0;
+    foreach ($existingCodes as $c) {
+        $numPart = substr($c, $prefixLen);
+        if ($numPart !== '' && ctype_digit($numPart)) {
+            $val = (int)$numPart;
+            if ($val > $maxNum) {
+                $maxNum = $val;
+            }
+        }
+    }
+
+    $num = $maxNum + 1;
+    $code = $prefix . str_pad($num, 3, '0', STR_PAD_LEFT);
+
+    $chk = $db->prepare("SELECT COUNT(*) FROM employees WHERE employee_code = ?");
+    while (true) {
+        $chk->execute([$code]);
+        if ((int)$chk->fetchColumn() === 0) {
+            break;
+        }
+        $num++;
+        $code = $prefix . str_pad($num, 3, '0', STR_PAD_LEFT);
+    }
+
+    return $code;
+}
+
 function createEmployee($db) {
     $data = json_decode($GLOBALS['_RAW_INPUT'] ?? file_get_contents('php://input'), true) ?? $_POST;
 
     $validator = Validator::validate($data, [
         'first_name' => 'required',
-        'employee_code' => 'required',
         'email' => 'email',
     ]);
 
@@ -224,8 +293,23 @@ function createEmployee($db) {
         return ['success' => false, 'errors' => $validator];
     }
 
+    $branchId = !empty($data['branch_id']) ? (int)$data['branch_id'] : null;
+
+    if (empty($data['employee_code'])) {
+        if (!$branchId) {
+            return ['success' => false, 'message' => 'Branch is required to generate employee code'];
+        }
+        try {
+            $employeeCode = generateBranchEmployeeCode($db, $branchId);
+        } catch (Exception $e) {
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    } else {
+        $employeeCode = trim($data['employee_code']);
+    }
+
     $stmt = $db->prepare("SELECT id FROM employees WHERE employee_code = ?");
-    $stmt->execute([$data['employee_code']]);
+    $stmt->execute([$employeeCode]);
     if ($stmt->fetch()) {
         return ['success' => false, 'message' => 'Employee code already exists'];
     }
@@ -234,7 +318,7 @@ function createEmployee($db) {
     $userId = null;
 
     if ($createLogin) {
-        $username = $data['username'] ?? $data['employee_code'];
+        $username = $data['username'] ?? $employeeCode;
         $password = password_hash($data['password'] ?? 'employee123', PASSWORD_BCRYPT);
         $roleId = $data['role_id'] ?? 5;
 
@@ -244,9 +328,6 @@ function createEmployee($db) {
             return ['success' => false, 'message' => 'Username already exists'];
         }
 
-        // See the note in admin_panel/modules/employees.php: employee_id here
-        // is an integer column being given the employee code, it is not in the
-        // schema, and nothing reads it. The link is employees.user_id.
         $stmt = $db->prepare("INSERT INTO users (username, email, password, role_id, status) VALUES (?, ?, ?, ?, 1)");
         $stmt->execute([$username, $data['email'] ?? '', $password, $roleId]);
         $userId = $db->lastInsertId();
@@ -254,21 +335,22 @@ function createEmployee($db) {
 
     $stmt = $db->prepare("
         INSERT INTO employees (user_id, employee_code, first_name, last_name, mobile, email,
-                              department_id, designation_id, joining_date, salary, address,
+                              department_id, designation_id, branch_id, joining_date, salary, address,
                               city, state, pincode, status, is_field_staff)
         VALUES (:user_id, :employee_code, :first_name, :last_name, :mobile, :email,
-                :department_id, :designation_id, :joining_date, :salary, :address,
+                :department_id, :designation_id, :branch_id, :joining_date, :salary, :address,
                 :city, :state, :pincode, :status, :is_field_staff)
     ");
     $stmt->execute([
         ':user_id' => $userId,
-        ':employee_code' => $data['employee_code'],
+        ':employee_code' => $employeeCode,
         ':first_name' => $data['first_name'],
         ':last_name' => $data['last_name'] ?? '',
         ':mobile' => $data['mobile'] ?? '',
         ':email' => $data['email'] ?? '',
         ':department_id' => $data['department_id'] ?? null,
         ':designation_id' => $data['designation_id'] ?? null,
+        ':branch_id' => $branchId,
         ':joining_date' => $data['joining_date'] ?? null,
         ':salary' => $data['salary'] ?? 0,
         ':address' => $data['address'] ?? '',
@@ -279,7 +361,7 @@ function createEmployee($db) {
         ':is_field_staff' => $data['is_field_staff'] ?? 0,
     ]);
 
-    return ['success' => true, 'message' => 'Employee created successfully', 'user_id' => $userId];
+    return ['success' => true, 'message' => 'Employee created successfully', 'employee_code' => $employeeCode, 'user_id' => $userId];
 }
 
 function updateEmployee($db, $id) {
@@ -288,7 +370,7 @@ function updateEmployee($db, $id) {
     $data = json_decode($GLOBALS['_RAW_INPUT'] ?? file_get_contents('php://input'), true) ?? $_POST;
 
     $allowed = ['first_name', 'last_name', 'mobile', 'email', 'department_id', 'designation_id',
-                'joining_date', 'salary', 'address', 'city', 'state', 'pincode', 'status',
+                'branch_id', 'joining_date', 'salary', 'address', 'city', 'state', 'pincode', 'status',
                 'is_field_staff'];
 
     $updates = [];

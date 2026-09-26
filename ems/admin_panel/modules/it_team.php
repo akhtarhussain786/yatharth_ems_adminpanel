@@ -4,7 +4,7 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 require_once '../includes/config.php';
-if (!isLoggedIn()) redirect('../index.php');
+if (!isLoggedIn()) redirect(BASE_URL . 'index');
 requireModuleAccess('it_team');
 
 $message = '';

@@ -8,6 +8,8 @@ function handleSettingsRequest($action) {
     switch ($action) {
         case 'office':
             return getOfficeSettings($db);
+        case 'branches':
+            return getBranches($db);
         case 'salary_rules':
             return getSalaryRules($db);
         case 'departments':
@@ -67,4 +69,11 @@ function getDesignations($db, $departmentId) {
     $designations = $stmt->fetchAll();
 
     return ['success' => true, 'data' => $designations];
+}
+
+function getBranches($db) {
+    $stmt = $db->query("SELECT * FROM branches ORDER BY branch_name ASC");
+    $branches = $stmt->fetchAll();
+
+    return ['success' => true, 'data' => $branches];
 }

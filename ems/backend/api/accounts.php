@@ -214,69 +214,35 @@ function handleFeeCollections($db, $auth, $param, $data) {
     return ['success' => false, 'message' => 'Invalid fee collection action'];
 }
 
+require_once __DIR__ . '/../helpers/payroll_helper.php';
+
 function handleSalaryProcess($db, $auth, $data) {
-    AuthMiddleware::checkRole(['super_admin', 'accounts']);
-    $monthYear = $data['month_year'] ?? date('Y-m');
+    AuthMiddleware::checkRole(['super_admin', 'accounts', 'accounts_admin']);
+    $monthYear = filterMonth($data['month_year'] ?? date('Y-m'));
     $employeeId = $data['employee_id'] ?? '';
 
-    $sql = "SELECT e.id, e.first_name, e.last_name, e.employee_code, e.salary, e.department_id
-            FROM employees e WHERE e.status = 1";
+    $sql = "SELECT id FROM employees WHERE status = 1";
     $params = [];
-    if ($employeeId) { $sql .= " AND e.id = ?"; $params[] = $employeeId; }
+    if ($employeeId) { $sql .= " AND id = ?"; $params[] = $employeeId; }
+    $sql .= " ORDER BY first_name ASC";
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
     $employees = $stmt->fetchAll();
 
     $processed = 0;
     foreach ($employees as $emp) {
-        $attStmt = $db->prepare("
-            SELECT
-                COUNT(*) as total_days,
-                SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as present_days,
-                SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) as absent_days,
-                SUM(CASE WHEN a.status = 'late' THEN 1 ELSE 0 END) as late_days,
-                SUM(CASE WHEN a.status = 'half-day' THEN 1 ELSE 0 END) as half_days
-            FROM attendance a
-            WHERE a.employee_id = ? AND DATE_FORMAT(a.attendance_date, '%Y-%m') = ?
-        ");
-        $attStmt->execute([$emp['id'], $monthYear]);
-        $attendance = $attStmt->fetch();
-
-        $basicSalary = (float)($emp['salary'] ?? 0);
-        $allowances = (float)($data['allowances'] ?? 0);
-        $deductions = (float)($data['deductions'] ?? 0);
-
-        $perDaySalary = 30 > 0 ? $basicSalary / 30 : 0;
-        $absentDays = (int)($attendance['absent_days'] ?? 0);
-        $lateDays = (int)($attendance['late_days'] ?? 0);
-        $halfDays = (int)($attendance['half_days'] ?? 0);
-
-        $attDeduction = ($perDaySalary * $absentDays) + ($perDaySalary * $halfDays * 0.5) + ($perDaySalary * $lateDays * 0.25);
-        $netSalary = $basicSalary + $allowances - $deductions - $attDeduction;
-        if ($netSalary < 0) $netSalary = 0;
-
-        $presentDays = (int)($attendance['present_days'] ?? 0);
-        $absentDaysTotal = (int)($attendance['absent_days'] ?? 0);
-
-        $upsertStmt = $db->prepare("
-            INSERT INTO salary_processing (employee_id, month_year, basic_salary, allowances, deductions, net_salary,
-                                           present_days, absent_days, late_days, half_days, status, processed_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'processed', ?)
-            ON DUPLICATE KEY UPDATE
-                basic_salary = VALUES(basic_salary), allowances = VALUES(allowances),
-                deductions = VALUES(deductions), net_salary = VALUES(net_salary),
-                present_days = VALUES(present_days), absent_days = VALUES(absent_days),
-                late_days = VALUES(late_days), half_days = VALUES(half_days),
-                status = 'processed', processed_by = VALUES(processed_by)
-        ");
-        $upsertStmt->execute([
-            $emp['id'], $monthYear, $basicSalary, $allowances, $deductions, $netSalary,
-            $presentDays, $absentDaysTotal, $lateDays, $halfDays, $auth['user_id'],
-        ]);
-        $processed++;
+        $calc = calculateEmployeeSalary($db, (int)$emp['id'], $monthYear);
+        if ($calc['success'] && $calc['is_employed_this_month']) {
+            if (isset($data['allowances'])) $calc['allowances'] = (float)$data['allowances'];
+            if (isset($data['bonus_amount'])) $calc['bonus_amount'] = (float)$data['bonus_amount'];
+            if (isset($data['other_deductions'])) $calc['other_deductions'] = (float)$data['other_deductions'];
+            
+            saveSalaryPayrollRecord($db, $calc, $auth['user_id']);
+            $processed++;
+        }
     }
 
-    return ['success' => true, 'message' => "Salary processed for $processed employees"];
+    return ['success' => true, 'message' => "Salary processed for $processed employees for $monthYear"];
 }
 
 function uploadFileAccounts($file, $subdir) {

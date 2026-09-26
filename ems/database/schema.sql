@@ -1,5 +1,5 @@
-CREATE DATABASE IF NOT EXISTS eams_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE eams_db;
+CREATE DATABASE IF NOT EXISTS yatharth_ems_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE yatharth_ems_db;
 
 -- =============================================
 -- 1. roles
@@ -78,7 +78,9 @@ CREATE TABLE employees (
     email VARCHAR(100),
     department_id INT,
     designation_id INT,
+    branch_id INT,
     joining_date DATE,
+    relieving_date DATE,
     salary DECIMAL(12,2) DEFAULT 0.00,
     profile_photo VARCHAR(255),
     address TEXT,
@@ -91,6 +93,21 @@ CREATE TABLE employees (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
     FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL,
     FOREIGN KEY (designation_id) REFERENCES designations(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- =============================================
+-- 6.1 branches
+-- =============================================
+CREATE TABLE IF NOT EXISTS branches (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    branch_name VARCHAR(150) NOT NULL,
+    branch_code VARCHAR(50) DEFAULT NULL,
+    latitude DECIMAL(10,8) DEFAULT NULL,
+    longitude DECIMAL(11,8) DEFAULT NULL,
+    attendance_radius INT DEFAULT 100,
+    status TINYINT(1) DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
 -- =============================================

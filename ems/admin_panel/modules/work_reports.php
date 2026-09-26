@@ -1,6 +1,6 @@
 <?php
 require_once '../includes/config.php';
-if (!isLoggedIn()) redirect('../index.php');
+if (!isLoggedIn()) redirect(BASE_URL . 'index');
 requireModuleAccess('daily_work_reports');
 
 $depts = $pdo->query("SELECT id, name FROM departments WHERE status = 1 ORDER BY name")->fetchAll();

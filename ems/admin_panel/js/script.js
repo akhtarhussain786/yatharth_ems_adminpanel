@@ -240,7 +240,7 @@ function showNotificationToast(n) {
     var message = n.message || "";
     var timeAgo = getTimeAgo(n.created_at) || "Just now";
     var toastId = "notifToast_" + (n.id || Date.now());
-    var targetUrl = n.target_url || (window.location.origin + '/ems/admin_panel/modules/notifications.php');
+    var targetUrl = n.target_url || (window.location.origin + '/ems/admin_panel/modules/notifications');
     var actionLabel = n.action_label || meta.label || 'View Details';
 
     if ($("#" + toastId).length > 0) return;

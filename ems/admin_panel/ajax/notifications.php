@@ -53,34 +53,34 @@ try {
             // Ensure destination URL
             if (empty($item['link']) || $item['link'] === '#') {
                 if ($type === 'lead') {
-                    $item['target_url'] = BASE_URL . 'modules/leads.php';
+                    $item['target_url'] = BASE_URL . 'modules/leads';
                     $item['action_label'] = 'View Lead';
                 } elseif ($type === 'leave') {
-                    $item['target_url'] = BASE_URL . 'modules/leave_requests.php';
+                    $item['target_url'] = BASE_URL . 'modules/leave_requests';
                     $item['action_label'] = 'View Leave';
                 } elseif ($type === 'attendance') {
-                    $item['target_url'] = BASE_URL . 'modules/attendance.php';
+                    $item['target_url'] = BASE_URL . 'modules/attendance';
                     $item['action_label'] = 'View Attendance';
                 } elseif ($type === 'task') {
-                    $item['target_url'] = BASE_URL . 'modules/tasks.php';
+                    $item['target_url'] = BASE_URL . 'modules/tasks';
                     $item['action_label'] = 'View Task';
                 } elseif ($type === 'work' || $type === 'work_report') {
-                    $item['target_url'] = BASE_URL . 'modules/work_reports.php';
+                    $item['target_url'] = BASE_URL . 'modules/work_reports';
                     $item['action_label'] = 'View Report';
                 } else {
-                    $item['target_url'] = BASE_URL . 'modules/notifications.php';
+                    $item['target_url'] = BASE_URL . 'modules/notifications';
                     $item['action_label'] = 'View';
                 }
             } else {
                 $link = $item['link'];
                 if (strpos($link, '/leads') !== false) {
-                    $item['target_url'] = BASE_URL . 'modules/leads.php';
+                    $item['target_url'] = BASE_URL . 'modules/leads';
                     $item['action_label'] = 'View Lead';
                 } elseif (strpos($link, '/leaves') !== false) {
-                    $item['target_url'] = BASE_URL . 'modules/leave_requests.php';
+                    $item['target_url'] = BASE_URL . 'modules/leave_requests';
                     $item['action_label'] = 'View Leave';
                 } elseif (strpos($link, '/attendance') !== false) {
-                    $item['target_url'] = BASE_URL . 'modules/attendance.php';
+                    $item['target_url'] = BASE_URL . 'modules/attendance';
                     $item['action_label'] = 'View Attendance';
                 } else {
                     $item['target_url'] = (strpos($link, 'http') === 0) ? $link : (BASE_URL . ltrim($link, '/'));

@@ -80,7 +80,7 @@
                     </div>
                 </div>
                 <div class="notif-footer p-2 text-center border-top bg-light">
-                    <a href="<?php echo BASE_URL; ?>modules/notifications.php" class="text-primary small fw-semibold text-decoration-none">
+                    <a href="<?php echo BASE_URL; ?>modules/notifications" class="text-primary small fw-semibold text-decoration-none">
                         View all notifications <i class="fas fa-arrow-right ms-1"></i>
                     </a>
                 </div>
@@ -98,14 +98,13 @@
                 <i class="fas fa-chevron-down" style="font-size:0.65rem;color:var(--gray-400);"></i>
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
-                <li><a class="dropdown-item" href="#"><i class="fas fa-user"></i> Profile</a></li>
-                <li><a class="dropdown-item" href="<?php echo BASE_URL; ?>modules/attendance.php"><i class="fas fa-calendar-check"></i> My Attendance</a></li>
+                <li><a class="dropdown-item" href="<?php echo BASE_URL; ?>modules/profile"><i class="fas fa-user"></i> Profile</a></li>
+                <li><a class="dropdown-item" href="<?php echo BASE_URL; ?>modules/attendance"><i class="fas fa-calendar-check"></i> My Attendance</a></li>
                 <li><hr class="dropdown-divider"></li>
-                <li><a class="dropdown-item" href="#"><i class="fas fa-cog"></i> Settings</a></li>
-                <li><a class="dropdown-item" href="#"><i class="fas fa-key"></i> Change Password</a></li>
+                <li><a class="dropdown-item" href="<?php echo BASE_URL; ?>modules/settings"><i class="fas fa-cog"></i> Settings</a></li>
                 <li><hr class="dropdown-divider"></li>
                 <li>
-                    <a class="dropdown-item text-danger" href="<?php echo BASE_URL; ?>logout.php">
+                    <a class="dropdown-item text-danger" href="<?php echo BASE_URL; ?>logout">
                         <i class="fas fa-sign-out-alt"></i> Logout
                     </a>
                 </li>

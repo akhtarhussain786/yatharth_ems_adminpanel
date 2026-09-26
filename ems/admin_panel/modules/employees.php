@@ -1,30 +1,74 @@
 <?php
 require_once '../includes/config.php';
-if (!isLoggedIn()) redirect('../index.php');
+if (!isLoggedIn()) redirect(BASE_URL . 'index');
 requireModuleAccess('employees');
 
 $message = '';
 
 // =============================================
-// Auto Generate Employee Code (YGI001, YGI002...)
+// Auto Generate Dynamic Branch-Based Employee Code (SIW001, PAT001, BHO001...)
 // =============================================
-function generateEmployeeCode($pdo) {
-    $prefix = 'YGI';
-    $stmt = $pdo->query("SELECT employee_code FROM employees WHERE employee_code LIKE 'YGI%' ORDER BY employee_code DESC LIMIT 1");
-    $last = $stmt->fetchColumn();
-
-    if ($last) {
-        $num = (int)substr($last, 3) + 1;
-    } else {
-        $num = 1;
+function generateEmployeeCode($pdo, $branchId = null) {
+    if (empty($branchId)) {
+        throw new Exception("Branch is required to generate employee code");
     }
 
-    // Ensure uniqueness (skip if code already exists)
+    // Always fetch branch strictly from database (never trust frontend branch name)
+    $stmt = $pdo->prepare("SELECT id, branch_name, branch_code, status FROM branches WHERE id = ?");
+    $stmt->execute([(int)$branchId]);
+    $branch = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$branch) {
+        throw new Exception("Selected branch does not exist");
+    }
+    if ((int)$branch['status'] !== 1) {
+        throw new Exception("Selected branch is inactive");
+    }
+
+    $rawName = trim($branch['branch_name'] ?? '');
+    if ($rawName === '') {
+        throw new Exception("Branch name is empty in database");
+    }
+
+    // Extract first 3 alphabetic letters in UPPERCASE
+    // Example: "Siwan Branch" -> "SIW", "Patna" -> "PAT", "Bhopal Main" -> "BHO", "New Delhi" -> "NEW"
+    $cleanLetters = preg_replace('/[^A-Za-z]/', '', $rawName);
+    if (strlen($cleanLetters) >= 3) {
+        $prefix = strtoupper(substr($cleanLetters, 0, 3));
+    } elseif (strlen($cleanLetters) > 0) {
+        $prefix = str_pad(strtoupper($cleanLetters), 3, 'X');
+    } else {
+        $cleanCode = preg_replace('/[^A-Za-z]/', '', $branch['branch_code'] ?? '');
+        $prefix = strlen($cleanCode) >= 3 ? strtoupper(substr($cleanCode, 0, 3)) : 'EMP';
+    }
+
+    // Retrieve all existing employee codes starting with this prefix to accurately extract the highest numeric integer
+    $prefixLen = strlen($prefix);
+    $stmt = $pdo->prepare("SELECT employee_code FROM employees WHERE employee_code LIKE ?");
+    $stmt->execute([$prefix . '%']);
+    $existingCodes = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+    $maxNum = 0;
+    foreach ($existingCodes as $c) {
+        $numPart = substr($c, $prefixLen);
+        if ($numPart !== '' && ctype_digit($numPart)) {
+            $val = (int)$numPart;
+            if ($val > $maxNum) {
+                $maxNum = $val;
+            }
+        }
+    }
+
+    $num = $maxNum + 1;
     $code = $prefix . str_pad($num, 3, '0', STR_PAD_LEFT);
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM employees WHERE employee_code = ?");
+
+    // Concurrency & duplicate safety check loop
+    $chk = $pdo->prepare("SELECT COUNT(*) FROM employees WHERE employee_code = ?");
     while (true) {
-        $stmt->execute([$code]);
-        if ($stmt->fetchColumn() == 0) break;
+        $chk->execute([$code]);
+        if ((int)$chk->fetchColumn() === 0) {
+            break;
+        }
         $num++;
         $code = $prefix . str_pad($num, 3, '0', STR_PAD_LEFT);
     }
@@ -32,17 +76,31 @@ function generateEmployeeCode($pdo) {
     return $code;
 }
 
+// AJAX endpoint for live dynamic code generation in Add modal
+if (isset($_GET['action']) && $_GET['action'] === 'next_code') {
+    header('Content-Type: application/json');
+    $bId = (int)($_GET['branch_id'] ?? 0);
+    try {
+        $code = generateEmployeeCode($pdo, $bId);
+        echo json_encode(['success' => true, 'employee_code' => $code]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+    exit;
+}
+
 // Add / Edit
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = $_POST['action'];
     $first_name = sanitize($_POST['first_name']);
     $last_name = sanitize($_POST['last_name'] ?? '');
-    $employee_code = sanitize($_POST['employee_code'] ?? '');
+    $branch_id = !empty($_POST['branch_id']) ? (int)$_POST['branch_id'] : null;
     $mobile = sanitize($_POST['mobile'] ?? '');
     $email = sanitize($_POST['email'] ?? '');
     $department_id = $_POST['department_id'] ?: null;
     $designation_id = $_POST['designation_id'] ?: null;
     $joining_date = $_POST['joining_date'] ?: null;
+    $relieving_date = $_POST['relieving_date'] ?: null;
     $salary = $_POST['salary'] ?? 0;
     $address = sanitize($_POST['address'] ?? '');
     $city = sanitize($_POST['city'] ?? '');
@@ -56,10 +114,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $pdo->beginTransaction();
 
         if ($action == 'add') {
-            // Auto-generate code if not provided
-            if (empty($employee_code)) {
-                $employee_code = generateEmployeeCode($pdo);
+            if (!$branch_id) {
+                throw new Exception('Branch is required to add an employee');
             }
+
+            // Always generate dynamic branch-based code on backend from verified DB branch
+            $employee_code = generateEmployeeCode($pdo, $branch_id);
+
             $chk = $pdo->prepare("SELECT id FROM employees WHERE employee_code = ?");
             $chk->execute([$employee_code]);
             if ($chk->fetch()) throw new Exception('Employee code already exists');
@@ -67,37 +128,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $userId = null;
             if ($create_login) {
                 $username = sanitize($_POST['username'] ?? $employee_code);
-                $password = password_hash($_POST['password'] ?? 'employee123', PASSWORD_BCRYPT);
+                if (empty($username)) $username = $employee_code;
+                $pass_raw = trim($_POST['password'] ?? '');
+                if (empty($pass_raw)) {
+                    $pass_raw = 'employee123';
+                }
+                $password = password_hash($pass_raw, PASSWORD_BCRYPT);
                 $role_id = (int)($_POST['role_id'] ?? 5);
 
                 $uchk = $pdo->prepare("SELECT id FROM users WHERE username = ?");
                 $uchk->execute([$username]);
                 if ($uchk->fetch()) throw new Exception('Username already exists');
 
-                // users.employee_id is not written: it is an integer column
-                // that was being given the employee CODE ("YGI001"), the column
-                // is absent from the schema entirely, and nothing reads it —
-                // login joins employees.user_id instead. Writing it could only
-                // fail the insert or store a wrong value.
                 $stmt = $pdo->prepare("INSERT INTO users (username, email, password, role_id, status) VALUES (?, ?, ?, ?, 1)");
                 $stmt->execute([$username, $email, $password, $role_id]);
                 $userId = $pdo->lastInsertId();
             }
 
-            $stmt = $pdo->prepare("INSERT INTO employees (user_id, employee_code, first_name, last_name, mobile, email, department_id, designation_id, joining_date, salary, address, city, state, pincode, status, is_field_staff) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-            $stmt->execute([$userId, $employee_code, $first_name, $last_name, $mobile, $email, $department_id, $designation_id, $joining_date, $salary, $address, $city, $state, $pincode, $status, $is_field_staff]);
-            $message = 'Employee added successfully';
+            $stmt = $pdo->prepare("INSERT INTO employees (user_id, employee_code, first_name, last_name, mobile, email, department_id, designation_id, branch_id, joining_date, relieving_date, salary, address, city, state, pincode, status, is_field_staff) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            $stmt->execute([$userId, $employee_code, $first_name, $last_name, $mobile, $email, $department_id, $designation_id, $branch_id, $joining_date, $relieving_date, $salary, $address, $city, $state, $pincode, $status, $is_field_staff]);
+            $message = 'Employee added successfully with Employee Code: ' . $employee_code;
         } else {
             $id = (int)$_POST['id'];
-            $stmt = $pdo->prepare("UPDATE employees SET first_name=?, last_name=?, employee_code=?, mobile=?, email=?, department_id=?, designation_id=?, joining_date=?, salary=?, address=?, city=?, state=?, pincode=?, status=?, is_field_staff=? WHERE id=?");
-            $stmt->execute([$first_name, $last_name, $employee_code, $mobile, $email, $department_id, $designation_id, $joining_date, $salary, $address, $city, $state, $pincode, $status, $is_field_staff, $id]);
+            $emp = $pdo->prepare("SELECT user_id, employee_code, email FROM employees WHERE id = ?");
+            $emp->execute([$id]);
+            $e = $emp->fetch();
+            if (!$e) throw new Exception('Employee not found');
 
-            if (isset($_POST['role_id'])) {
-                $emp = $pdo->prepare("SELECT user_id FROM employees WHERE id = ?");
-                $emp->execute([$id]);
-                $e = $emp->fetch();
+            // CRITICAL: Existing employee_code is NEVER altered on edit/transfer!
+            $employee_code = $e['employee_code'];
+
+            $stmt = $pdo->prepare("UPDATE employees SET first_name=?, last_name=?, mobile=?, email=?, department_id=?, designation_id=?, branch_id=?, joining_date=?, relieving_date=?, salary=?, address=?, city=?, state=?, pincode=?, status=?, is_field_staff=? WHERE id=?");
+            $stmt->execute([$first_name, $last_name, $mobile, $email, $department_id, $designation_id, $branch_id, $joining_date, $relieving_date, $salary, $address, $city, $state, $pincode, $status, $is_field_staff, $id]);
+
+            if ($create_login) {
+                $username = sanitize($_POST['username'] ?? $employee_code);
+                if (empty($username)) $username = $employee_code;
+                $role_id = !empty($_POST['role_id']) ? (int)$_POST['role_id'] : 5;
+                $pass_raw = trim($_POST['password'] ?? '');
+
                 if ($e && $e['user_id']) {
-                    $pdo->prepare("UPDATE users SET role_id = ? WHERE id = ?")->execute([(int)$_POST['role_id'], $e['user_id']]);
+                    // Check if username is already taken by another user
+                    $uchk = $pdo->prepare("SELECT id FROM users WHERE username = ? AND id != ?");
+                    $uchk->execute([$username, $e['user_id']]);
+                    if ($uchk->fetch()) throw new Exception('Username already exists for another account');
+
+                    // If a new password was typed (and not blank / masked), update password hash
+                    if (!empty($pass_raw) && $pass_raw !== '********') {
+                        $passwordHash = password_hash($pass_raw, PASSWORD_BCRYPT);
+                        $pdo->prepare("UPDATE users SET username = ?, email = ?, password = ?, role_id = ? WHERE id = ?")
+                            ->execute([$username, $email, $passwordHash, $role_id, $e['user_id']]);
+                    } else {
+                        $pdo->prepare("UPDATE users SET username = ?, email = ?, role_id = ? WHERE id = ?")
+                            ->execute([$username, $email, $role_id, $e['user_id']]);
+                    }
+                } else {
+                    // Create a new login account for this existing employee
+                    $uchk = $pdo->prepare("SELECT id FROM users WHERE username = ?");
+                    $uchk->execute([$username]);
+                    if ($uchk->fetch()) throw new Exception('Username already exists');
+
+                    if (empty($pass_raw) || $pass_raw === '********') {
+                        $pass_raw = 'employee123';
+                    }
+                    $passwordHash = password_hash($pass_raw, PASSWORD_BCRYPT);
+
+                    $stmt = $pdo->prepare("INSERT INTO users (username, email, password, role_id, status) VALUES (?, ?, ?, ?, 1)");
+                    $stmt->execute([$username, $email, $passwordHash, $role_id]);
+                    $newUserId = $pdo->lastInsertId();
+
+                    $pdo->prepare("UPDATE employees SET user_id = ? WHERE id = ?")->execute([$newUserId, $id]);
                 }
             }
 
@@ -168,12 +268,14 @@ if (isset($_GET['delete'])) {
 }
 
 // Filters — each select submits on change, so the list reloads immediately.
+$filterBranch = $_GET['branch_id'] ?? '';
 $filterDept   = $_GET['department_id'] ?? '';
 $filterStatus = $_GET['status'] ?? '';
 $filterRole   = $_GET['role_id'] ?? '';
 
 $where = [];
 $params = [];
+if ($filterBranch !== '') { $where[] = 'e.branch_id = ?';     $params[] = (int) $filterBranch; }
 if ($filterDept !== '')   { $where[] = 'e.department_id = ?'; $params[] = (int) $filterDept; }
 if ($filterStatus !== '') { $where[] = 'e.status = ?';        $params[] = (int) $filterStatus; }
 if ($filterRole !== '')   { $where[] = 'u.role_id = ?';       $params[] = (int) $filterRole; }
@@ -184,6 +286,7 @@ if ($filterRole !== '')   { $where[] = 'u.role_id = ?';       $params[] = (int) 
 $buildSql = function ($withFace) use ($where) {
     $sql = "
     SELECT e.*, d.name as department_name, des.name as designation_name,
+           b.branch_name, b.branch_code,
            u.role_id as user_role_id, u.status as user_active, u.username,
            u.device_id, u.device_name,
            r.name as role_name, r.description as role_display";
@@ -194,13 +297,14 @@ $buildSql = function ($withFace) use ($where) {
     }
     $sql .= "
     FROM employees e
+    LEFT JOIN branches b ON b.id = e.branch_id
     LEFT JOIN departments d ON d.id = e.department_id
     LEFT JOIN designations des ON des.id = e.designation_id
     LEFT JOIN users u ON u.id = e.user_id
     LEFT JOIN roles r ON r.id = u.role_id";
     if ($withFace) $sql .= "\n    LEFT JOIN employee_face_data fd ON fd.employee_id = e.id";
     if ($where) $sql .= "\n    WHERE " . implode(' AND ', $where);
-    return $sql . "\n    ORDER BY e.first_name ASC";
+    return $sql . "\n    ORDER BY e.id DESC";
 };
 
 try {
@@ -214,6 +318,7 @@ try {
     $employees = $stmt->fetchAll();
 }
 
+$branches = $pdo->query("SELECT * FROM branches WHERE status = 1 ORDER BY branch_name")->fetchAll();
 $departments = $pdo->query("SELECT * FROM departments WHERE status = 1 ORDER BY name")->fetchAll();
 $designations = $pdo->query("SELECT * FROM designations WHERE status = 1 ORDER BY name")->fetchAll();
 $roles = $pdo->query("SELECT id, name, description FROM roles ORDER BY id")->fetchAll();
@@ -236,6 +341,15 @@ require_once '../includes/header.php';
     <div class="card-body py-2">
         <form method="GET" class="row g-2 align-items-end">
             <div class="col-md-3">
+                <label class="form-label mb-1 small text-muted">Branch</label>
+                <select name="branch_id" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="">All Branches</option>
+                    <?php foreach ($branches as $b): ?>
+                    <option value="<?php echo $b['id']; ?>" <?php echo (string)$filterBranch === (string)$b['id'] ? 'selected' : ''; ?>><?php echo sanitize($b['branch_name']); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="col-md-2">
                 <label class="form-label mb-1 small text-muted">Department</label>
                 <select name="department_id" class="form-select form-select-sm" onchange="this.form.submit()">
                     <option value="">All Departments</option>
@@ -244,7 +358,7 @@ require_once '../includes/header.php';
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label mb-1 small text-muted">Role</label>
                 <select name="role_id" class="form-select form-select-sm" onchange="this.form.submit()">
                     <option value="">All Roles</option>
@@ -253,7 +367,7 @@ require_once '../includes/header.php';
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label mb-1 small text-muted">Status</label>
                 <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
                     <option value="">All</option>
@@ -263,8 +377,8 @@ require_once '../includes/header.php';
             </div>
             <div class="col-md-3">
                 <span class="text-muted small me-2"><?php echo count($employees); ?> employee<?php echo count($employees) === 1 ? '' : 's'; ?></span>
-                <?php if ($filterDept !== '' || $filterStatus !== '' || $filterRole !== ''): ?>
-                <a href="employees.php" class="btn btn-sm btn-outline-secondary">Clear</a>
+                <?php if ($filterBranch !== '' || $filterDept !== '' || $filterStatus !== '' || $filterRole !== ''): ?>
+                <a href="<?php echo BASE_URL; ?>modules/employees" class="btn btn-sm btn-outline-secondary">Clear</a>
                 <?php endif; ?>
             </div>
         </form>
@@ -276,13 +390,14 @@ require_once '../includes/header.php';
         <div class="table-responsive">
             <table class="table table-hover datatable mb-0">
                 <thead>
-                    <tr><th>Code</th><th>Name</th><th>Department</th><th>Designation</th><th>Mobile</th><th>Role</th><th>Type</th><th>Device</th><th>Face</th><th>Status</th><th>Actions</th></tr>
+                    <tr><th>Code</th><th>Name</th><th>Branch</th><th>Department</th><th>Designation</th><th>Mobile</th><th>Role</th><th>Type</th><th>Device</th><th>Face</th><th>Status</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                     <?php foreach ($employees as $emp): ?>
                     <tr>
-                        <td><?php echo sanitize($emp['employee_code']); ?></td>
+                        <td><span class="badge bg-light text-primary border fw-bold"><?php echo sanitize($emp['employee_code']); ?></span></td>
                         <td><?php echo sanitize($emp['first_name'] . ' ' . $emp['last_name']); ?></td>
+                        <td><span class="badge bg-light text-dark border"><?php echo sanitize($emp['branch_name'] ?? '-'); ?></span></td>
                         <td><?php echo sanitize($emp['department_name'] ?? '-'); ?></td>
                         <td><?php echo sanitize($emp['designation_name'] ?? '-'); ?></td>
                         <td><?php echo sanitize($emp['mobile']); ?></td>
@@ -310,7 +425,8 @@ require_once '../includes/header.php';
                         </td>
                         <td><span class="badge bg-<?php echo $emp['status'] ? 'success' : 'danger'; ?>"><?php echo $emp['status'] ? 'Active' : 'Inactive'; ?></span></td>
                         <td>
-                            <button class="btn btn-sm btn-info" onclick="editEmployee(<?php echo htmlspecialchars(json_encode($emp)); ?>)"><i class="fas fa-edit"></i></button>
+                            <button class="btn btn-sm btn-success" title="Salary Summary" onclick="openEmpSalarySummary(<?php echo $emp['id']; ?>, '<?php echo htmlspecialchars(addslashes($emp['first_name'] . ' ' . ($emp['last_name'] ?? '')), ENT_QUOTES); ?>')"><i class="fas fa-wallet"></i></button>
+                            <button class="btn btn-sm btn-info" title="Edit Employee" onclick="editEmployee(<?php echo htmlspecialchars(json_encode($emp)); ?>)"><i class="fas fa-edit"></i></button>
                             <?php if (!empty($emp['device_id'])): ?>
                             <a href="?reset_device=<?php echo $emp['id']; ?>" class="btn btn-sm btn-warning" title="Reset bound device"
                                onclick="return confirm('Unbind this device? The employee can then sign in from a new phone.')"><i class="fas fa-mobile-alt"></i></a>
@@ -343,8 +459,19 @@ require_once '../includes/header.php';
                     <input type="hidden" name="id" id="formId" value="">
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <label class="form-label">Employee Code *</label>
-                            <input type="text" name="employee_code" id="f_code" class="form-control" required>
+                            <label class="form-label fw-bold">Branch <span class="text-danger">*</span></label>
+                            <select name="branch_id" id="f_branch" class="form-select" required onchange="onBranchChange(this.value)">
+                                <option value="">-- Select Branch --</option>
+                                <?php foreach ($branches as $b): ?>
+                                <option value="<?php echo $b['id']; ?>"><?php echo sanitize($b['branch_name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <small class="text-muted" id="branchHelpText">Employee code prefix is generated from branch name</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Employee Code <span class="text-danger">*</span></label>
+                            <input type="text" name="employee_code" id="f_code" class="form-control bg-light" placeholder="Auto-generated on branch selection" readonly required>
+                            <small class="text-muted">Generated dynamically per branch (e.g. SIW001, PAT001)</small>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">First Name *</label>
@@ -371,19 +498,24 @@ require_once '../includes/header.php';
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                <div class="col-md-6">
-                    <label class="form-label">Designation</label>
-                    <select name="designation_id" id="f_desig" class="form-select">
-                        <option value="">Select Department First</option>
-                    </select>
-                </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Designation</label>
+                            <select name="designation_id" id="f_desig" class="form-select">
+                                <option value="">Select Department First</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Salary (Monthly)</label>
+                            <input type="number" step="0.01" name="salary" id="f_salary" class="form-control">
+                        </div>
                         <div class="col-md-6">
                             <label class="form-label">Joining Date</label>
                             <input type="date" name="joining_date" id="f_date" class="form-control">
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label">Salary</label>
-                            <input type="number" step="0.01" name="salary" id="f_salary" class="form-control">
+                            <label class="form-label">Relieving / Last Working Date</label>
+                            <input type="date" name="relieving_date" id="f_relieving_date" class="form-control">
+                            <small class="text-muted">Set when employee leaves the organization</small>
                         </div>
                         <div class="col-md-12">
                             <label class="form-label">Address</label>
@@ -420,7 +552,7 @@ require_once '../includes/header.php';
                             <hr>
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" id="createLoginToggle" name="create_login" value="1" onchange="toggleLoginFields()">
-                                <label class="form-check-label fw-bold" for="createLoginToggle">Create Login Account</label>
+                                <label class="form-check-label fw-bold" id="loginToggleLabel" for="createLoginToggle">Create Login Account</label>
                             </div>
                         </div>
                         <div id="loginFields" style="display:none;" class="col-12">
@@ -430,8 +562,13 @@ require_once '../includes/header.php';
                                     <input type="text" name="username" id="f_username" class="form-control" placeholder="Auto: employee code">
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Password</label>
-                                    <input type="text" name="password" id="f_password" class="form-control" value="employee123">
+                                    <label class="form-label">Password <small class="text-muted" id="passwordHelpText">(default: employee123)</small></label>
+                                    <div class="input-group">
+                                        <input type="password" name="password" id="f_password" class="form-control" placeholder="Enter password" autocomplete="new-password">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('f_password', 'f_password_icon')" title="Show / Hide Password">
+                                            <i class="fas fa-eye" id="f_password_icon"></i>
+                                        </button>
+                                    </div>
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">Role</label>
@@ -455,16 +592,79 @@ require_once '../includes/header.php';
     </div>
 </div>
 
+<!-- Employee Salary Summary Modal -->
+<div class="modal fade" id="empSalarySummaryModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="fas fa-wallet me-2"></i>Employee Salary & Ledger Summary</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="empSalarySummaryContent">
+                <div class="text-center py-4"><i class="fas fa-spinner fa-spin fa-2x"></i></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 var allDesignations = <?php echo json_encode($designations); ?>;
-var nextEmployeeCode = '<?php echo generateEmployeeCode($pdo); ?>';
+
+function onBranchChange(branchId) {
+    if (document.getElementById('formAction').value !== 'add') {
+        // In edit mode, do not change existing employee code
+        return;
+    }
+    if (!branchId) {
+        document.getElementById('f_code').value = '';
+        return;
+    }
+    document.getElementById('f_code').value = 'Generating...';
+    fetch('employees?action=next_code&branch_id=' + encodeURIComponent(branchId))
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.success) {
+                document.getElementById('f_code').value = res.employee_code;
+                if (document.getElementById('createLoginToggle').checked && !document.getElementById('f_username').value) {
+                    document.getElementById('f_username').placeholder = 'Auto: ' + res.employee_code;
+                }
+            } else {
+                document.getElementById('f_code').value = '';
+                alert('Branch Error: ' + res.message);
+            }
+        })
+        .catch(function(err) {
+            console.error(err);
+            document.getElementById('f_code').value = '';
+        });
+}
+
+function togglePasswordVisibility(inputId, iconId) {
+    var input = document.getElementById(inputId);
+    var icon = document.getElementById(iconId);
+    if (!input || !icon) return;
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.remove('fa-eye');
+        icon.classList.add('fa-eye-slash');
+    } else {
+        input.type = 'password';
+        icon.classList.remove('fa-eye-slash');
+        icon.classList.add('fa-eye');
+    }
+}
 
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelector('[data-bs-target="#employeeModal"]').addEventListener('click', function() {
         document.getElementById('modalTitle').textContent = 'Add Employee';
         document.getElementById('formAction').value = 'add';
         document.getElementById('formId').value = '';
-        document.getElementById('f_code').value = nextEmployeeCode;
+        document.getElementById('f_branch').value = '';
+        document.getElementById('f_branch').disabled = false;
+        document.getElementById('f_code').value = '';
         document.getElementById('f_code').readOnly = true;
         document.getElementById('f_fname').value = '';
         document.getElementById('f_lname').value = '';
@@ -473,23 +673,40 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('f_dept').value = '';
         filterDesignations('', null);
         document.getElementById('f_date').value = '';
+        document.getElementById('f_relieving_date').value = '';
         document.getElementById('f_salary').value = '';
         document.getElementById('f_address').value = '';
         document.getElementById('f_city').value = '';
         document.getElementById('f_state').value = '';
         document.getElementById('f_pincode').value = '';
         document.getElementById('f_status').value = '1';
+        document.getElementById('f_field_staff').value = '0';
+        document.getElementById('loginToggleLabel').textContent = 'Create Login Account';
         document.getElementById('createLoginToggle').checked = false;
         document.getElementById('loginFields').style.display = 'none';
+        document.getElementById('f_username').value = '';
+        document.getElementById('f_password').value = '';
+        document.getElementById('f_password').type = 'password';
+        document.getElementById('f_password').placeholder = 'Enter password (default: employee123)';
+        document.getElementById('passwordHelpText').textContent = '(default: employee123 if empty)';
         document.getElementById('f_password').disabled = false;
+        document.getElementById('f_role').value = '';
+        var icon = document.getElementById('f_password_icon');
+        if (icon) { icon.className = 'fas fa-eye'; }
+
+        // Default to first branch if available
+        var branchSelect = document.getElementById('f_branch');
+        if (branchSelect && branchSelect.options.length > 1) {
+            branchSelect.selectedIndex = 1;
+            onBranchChange(branchSelect.value);
+        }
     });
 
     document.getElementById('employeeModal').addEventListener('show.bs.modal', function(event) {
         if (document.getElementById('formAction').value === 'add') {
-            document.getElementById('f_code').value = nextEmployeeCode;
             document.getElementById('f_code').readOnly = true;
         } else {
-            document.getElementById('f_code').readOnly = false;
+            document.getElementById('f_code').readOnly = true; // Fixed on edit
         }
     });
 });
@@ -528,6 +745,7 @@ function editEmployee(emp) {
     document.getElementById('f_dept').value = emp.department_id || '';
     filterDesignations(emp.department_id, emp.designation_id);
     document.getElementById('f_date').value = emp.joining_date || '';
+    document.getElementById('f_relieving_date').value = emp.relieving_date || '';
     document.getElementById('f_salary').value = emp.salary || '';
     document.getElementById('f_address').value = emp.address || '';
     document.getElementById('f_city').value = emp.city || '';
@@ -536,20 +754,129 @@ function editEmployee(emp) {
     document.getElementById('f_status').value = emp.status;
     document.getElementById('f_field_staff').value = emp.is_field_staff ? '1' : '0';
 
-    if (emp.user_role_id) {
+    var icon = document.getElementById('f_password_icon');
+    if (icon) { icon.className = 'fas fa-eye'; }
+    document.getElementById('f_password').type = 'password';
+    document.getElementById('f_password').value = '';
+    document.getElementById('f_password').disabled = false;
+
+    if (emp.user_role_id || emp.user_id) {
+        document.getElementById('loginToggleLabel').textContent = 'Login Account Details / Reset Password';
         document.getElementById('createLoginToggle').checked = true;
         document.getElementById('loginFields').style.display = 'block';
         document.getElementById('f_username').value = emp.username || emp.employee_code;
-        document.getElementById('f_role').value = emp.user_role_id;
-        document.getElementById('f_password').value = '********';
-        document.getElementById('f_password').disabled = true;
+        document.getElementById('f_role').value = emp.user_role_id || '';
+        document.getElementById('f_password').placeholder = 'Enter new password to reset';
+        document.getElementById('passwordHelpText').textContent = '(leave blank to keep current password)';
     } else {
+        document.getElementById('loginToggleLabel').textContent = 'Create Login Account';
         document.getElementById('createLoginToggle').checked = false;
         document.getElementById('loginFields').style.display = 'none';
-        document.getElementById('f_password').disabled = false;
+        document.getElementById('f_username').value = emp.employee_code;
+        document.getElementById('f_role').value = '';
+        document.getElementById('f_password').placeholder = 'Enter password (default: employee123)';
+        document.getElementById('passwordHelpText').textContent = '(default: employee123 if empty)';
     }
 
     new bootstrap.Modal(document.getElementById('employeeModal')).show();
+}
+
+function openEmpSalarySummary(empId, empName) {
+    document.getElementById('empSalarySummaryContent').innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+    new bootstrap.Modal(document.getElementById('empSalarySummaryModal')).show();
+
+    fetch('../../backend/index.php?url=salary/slip/' + empId)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success || !data.data) {
+                document.getElementById('empSalarySummaryContent').innerHTML = '<div class="alert alert-danger">Failed to load salary profile.</div>';
+                return;
+            }
+
+            var d = data.data;
+            var emp = d.employee;
+            var s = d.salary;
+            var r = d.running_salary;
+
+            var runningHtml = '';
+            if (r) {
+                runningHtml = `
+                    <div class="alert alert-info py-2 mb-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div><i class="fas fa-chart-line me-1"></i><strong>${r.label}</strong>: ${r.eligible_days_till_today} days worked</div>
+                            <span class="badge bg-primary fs-6">₹${Number(r.estimated_earned_salary).toLocaleString('en-IN', {minimumFractionDigits:2})}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            var html = `
+                <div class="d-flex align-items-center justify-content-between mb-3 border-bottom pb-2">
+                    <div>
+                        <h5 class="fw-bold m-0 text-dark">${emp.name}</h5>
+                        <div class="small text-muted">${emp.code} &bull; ${emp.department} &bull; ${emp.designation || '-'}</div>
+                        <div class="small text-muted">Joining Date: <strong>${emp.joining_date || 'Not specified'}</strong></div>
+                    </div>
+                    <div>
+                        <a href="salary.php?employee_id=${emp.id}" class="btn btn-outline-primary btn-sm"><i class="fas fa-file-invoice me-1"></i>Salary Slip</a>
+                    </div>
+                </div>
+
+                ${runningHtml}
+
+                <div class="row g-2 mb-3">
+                    <div class="col-md-4">
+                        <div class="p-3 border rounded bg-light text-center">
+                            <span class="text-muted small">Monthly Salary</span>
+                            <h5 class="fw-bold m-0 text-dark mt-1">₹${Number(s.monthly_salary || s.basic_salary).toLocaleString('en-IN', {minimumFractionDigits:2})}</h5>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-3 border rounded bg-light text-center">
+                            <span class="text-muted small">Current Month Net (Earned)</span>
+                            <h5 class="fw-bold m-0 text-primary mt-1">₹${Number(s.current_net_salary || s.net_salary).toLocaleString('en-IN', {minimumFractionDigits:2})}</h5>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-3 border rounded bg-light text-center">
+                            <span class="text-muted small">Previous Due (Carry Forward)</span>
+                            <h5 class="fw-bold m-0 text-danger mt-1">₹${Number(s.previous_due || 0).toLocaleString('en-IN', {minimumFractionDigits:2})}</h5>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-3 border rounded bg-light text-center border-primary">
+                            <span class="text-muted small">Total Payable</span>
+                            <h5 class="fw-bold m-0 text-primary mt-1">₹${Number(s.total_payable || s.net_salary).toLocaleString('en-IN', {minimumFractionDigits:2})}</h5>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-3 border rounded bg-light text-center border-success">
+                            <span class="text-muted small">Total Paid</span>
+                            <h5 class="fw-bold m-0 text-success mt-1">₹${Number(s.paid_amount || 0).toLocaleString('en-IN', {minimumFractionDigits:2})}</h5>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-3 border rounded bg-light text-center border-danger">
+                            <span class="text-muted small">Total Outstanding Due</span>
+                            <h5 class="fw-bold m-0 text-danger mt-1">₹${Number(s.remaining_due || 0).toLocaleString('en-IN', {minimumFractionDigits:2})}</h5>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top">
+                    <span class="badge ${s.payment_status === 'paid' ? 'bg-success' : (s.payment_status === 'partially_paid' ? 'bg-warning text-dark' : 'bg-danger')} fs-6">
+                        Status: ${s.payment_status ? s.payment_status.toUpperCase() : 'UNPAID'}
+                    </span>
+                    <a href="salary.php?employee_id=${emp.id}" class="btn btn-sm btn-outline-success">
+                        <i class="fas fa-hand-holding-usd me-1"></i>Pay / View History in Salary Module
+                    </a>
+                </div>
+            `;
+            document.getElementById('empSalarySummaryContent').innerHTML = html;
+        })
+        .catch(err => {
+            document.getElementById('empSalarySummaryContent').innerHTML = '<div class="alert alert-danger">Error: ' + err + '</div>';
+        });
 }
 </script>
 

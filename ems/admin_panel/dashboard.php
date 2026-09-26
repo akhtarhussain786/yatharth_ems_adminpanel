@@ -7,11 +7,11 @@ if (!isLoggedIn()) {
     if ($rc > 3) {
         $_SESSION = [];
         session_destroy();
-        header("Location: " . BASE_URL . "index.php?session_error=1");
+        header("Location: " . BASE_URL . "index?session_error=1");
         exit;
     }
-    redirect(buildRedirectUrl('index.php', $rc));
-    exit; // ✅ Added exit
+    redirect(buildRedirectUrl('index', $rc));
+    exit;
 }
 
 // ===== INITIALIZE VARIABLES =====

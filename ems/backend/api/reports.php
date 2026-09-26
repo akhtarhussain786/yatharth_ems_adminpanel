@@ -85,11 +85,44 @@ function absentReport($db) {
     return ['success' => true, 'data' => $stmt->fetchAll(), 'date' => $date];
 }
 
+require_once __DIR__ . '/../helpers/payroll_helper.php';
+
 function salaryReport($db, $month) {
-    $month = $month ?: date('Y-m');
-    $stmt = $db->prepare("SELECT e.id, e.first_name, e.last_name, e.employee_code, e.salary, d.name as department_name, COALESCE(att.present, 0) as present_days, COALESCE(att.late, 0) as late_days, COALESCE(att.half_day, 0) as half_days, COALESCE(att.absent, 0) as absent_days, COALESCE(ded.total_deduction, 0) as total_deduction FROM employees e LEFT JOIN departments d ON d.id = e.department_id LEFT JOIN (SELECT employee_id, SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present, SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late, SUM(CASE WHEN status = 'half-day' THEN 1 ELSE 0 END) as half_day, SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent FROM attendance WHERE DATE_FORMAT(attendance_date, '%Y-%m') = ? GROUP BY employee_id) att ON att.employee_id = e.id LEFT JOIN (SELECT employee_id, SUM(deduction_amount) as total_deduction FROM salary_deductions WHERE DATE_FORMAT(deduction_date, '%Y-%m') = ? GROUP BY employee_id) ded ON ded.employee_id = e.id WHERE e.status = 1 ORDER BY e.first_name ASC");
-    $stmt->execute([$month, $month]);
-    return ['success' => true, 'data' => $stmt->fetchAll(), 'month' => $month];
+    $month = filterMonth($month ?: date('Y-m'));
+    $empRows = $db->query("SELECT id FROM employees WHERE status = 1 ORDER BY first_name ASC")->fetchAll();
+    $records = [];
+    foreach ($empRows as $er) {
+        $c = calculateEmployeeSalary($db, (int)$er['id'], $month);
+        if ($c['success']) {
+            $records[] = [
+                'id'                   => $c['employee']['id'],
+                'first_name'           => $c['employee']['first_name'],
+                'last_name'            => $c['employee']['last_name'] ?? '',
+                'employee_code'        => $c['employee']['employee_code'],
+                'salary'               => $c['monthly_salary'],
+                'department_name'      => $c['employee']['department_name'] ?? '',
+                'eligible_days'        => $c['eligible_days'],
+                'base_earned_salary'   => $c['base_earned_salary'],
+                'present_days'         => $c['present_days'],
+                'late_days'            => $c['late_days'],
+                'half_days'            => $c['half_days'],
+                'absent_days'          => $c['absent_days'],
+                'unpaid_leave_days'    => $c['unpaid_leave_days'],
+                'paid_leave_days'      => $c['paid_leave_days'],
+                'attendance_deduction' => $c['attendance_deduction'],
+                'other_deduction'      => $c['other_deductions'],
+                'total_deduction'      => $c['total_deductions'],
+                'current_net_salary'   => $c['current_net_salary'],
+                'net_salary'           => $c['current_net_salary'],
+                'previous_due'         => $c['previous_due'],
+                'total_payable'        => $c['total_payable'],
+                'paid_amount'          => $c['paid_amount'],
+                'remaining_due'        => $c['remaining_due'],
+                'payment_status'       => $c['payment_status'],
+            ];
+        }
+    }
+    return ['success' => true, 'data' => $records, 'month' => $month];
 }
 
 function workReport($db, $data) {

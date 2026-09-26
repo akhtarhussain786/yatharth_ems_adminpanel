@@ -210,7 +210,7 @@ function getEmployeeDashboard($db, $auth) {
             'monthly_leads' => (int)$monthLeads->fetchColumn(),
             'converted_leads' => (int)$wonLeads->fetchColumn(),
         ];
-    } elseif (in_array($role, ['telecaller', 'telecallers', 'telecaller_admin', 'counselor', 'counselors', 'sales', 'sales_admin', 'sales_executive'], true)) {
+    } elseif (in_array($role, ['telecaller', 'telecallers', 'telecaller_admin'], true)) {
         $eid = $employeeId ?: 0;
         $assignedLeads = $db->prepare("SELECT COUNT(*) FROM leads WHERE (assigned_to = ? OR employee_id = ? OR created_by = ?)");
         $assignedLeads->execute([$eid, $eid, $eid]);
@@ -234,35 +234,6 @@ function getEmployeeDashboard($db, $auth) {
         $teamTasks = $db->prepare("SELECT COUNT(*) FROM tasks WHERE assigned_by = ? OR assigned_by = (SELECT id FROM employees WHERE user_id = ? LIMIT 1)");
         $teamTasks->execute([$employeeId ?: 0, $userId ?: 0]);
         $roleSpecific = ['team_tasks' => (int)$teamTasks->fetchColumn()];
-    }
-
-    // Default fallback stats if roleSpecific is still empty
-    if (empty($roleSpecific)) {
-        $eid = $employeeId ?: 0;
-        $assignedLeads = $db->prepare("SELECT COUNT(*) FROM leads WHERE (assigned_to = ? OR employee_id = ? OR created_by = ?)");
-        $assignedLeads->execute([$eid, $eid, $eid]);
-        $leadCount = (int)$assignedLeads->fetchColumn();
-        if ($leadCount > 0) {
-            $todayCalls = $db->prepare("SELECT COUNT(*) FROM call_reports WHERE employee_id = ? AND (DATE(created_at) = CURDATE() OR DATE(call_date) = CURDATE())");
-            $todayCalls->execute([$eid]);
-            $pendingFollowUps = $db->prepare("SELECT COUNT(*) FROM follow_ups WHERE employee_id = ? AND status = 'pending' AND follow_up_date <= CURDATE()");
-            $pendingFollowUps->execute([$eid]);
-            $converted = $db->prepare("SELECT COUNT(*) FROM leads WHERE (assigned_to = ? OR employee_id = ? OR created_by = ?) AND (status = 'won' OR status = 'converted' OR status = 'qualified')");
-            $converted->execute([$eid, $eid, $eid]);
-            $roleSpecific = [
-                'assigned_leads' => $leadCount,
-                'today_calls' => (int)$todayCalls->fetchColumn(),
-                'pending_followups' => (int)$pendingFollowUps->fetchColumn(),
-                'converted_leads' => (int)$converted->fetchColumn(),
-            ];
-        } else {
-            $roleSpecific = [
-                'total_leads' => 0,
-                'today_leads' => 0,
-                'monthly_leads' => 0,
-                'converted_leads' => 0,
-            ];
-        }
     }
 
     // Leaves stats

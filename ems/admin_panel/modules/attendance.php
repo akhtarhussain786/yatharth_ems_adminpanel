@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/config.php';
-if (!isLoggedIn()) redirect('../index.php');
+if (!isLoggedIn()) redirect(BASE_URL . 'index');
 requireModuleAccess('attendance');
 
 $message = '';

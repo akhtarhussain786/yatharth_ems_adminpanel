@@ -18,7 +18,7 @@ if (isLoggedIn()) {
         session_destroy();
         $error = 'Session error. Please login again.';
     } else {
-        redirect(buildRedirectUrl('dashboard.php', $rc));
+        redirect(buildRedirectUrl('dashboard', $rc));
     }
 }
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -72,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                      ->execute([$user['id'], $_SERVER['REMOTE_ADDR']]);
             } catch (Exception $e) {}
 
-            redirect('dashboard.php');
+            redirect('dashboard');
         } else {
             $error = 'Invalid credentials or unauthorized access';
         }

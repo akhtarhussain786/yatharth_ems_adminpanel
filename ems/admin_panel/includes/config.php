@@ -22,6 +22,7 @@ function formatMinutes($minutes) {
 }
 
 try {
+    // 1. Live server credentials (Hostinger / cPanel)
     $pdo = new PDO(
         "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4",
         DB_USER,
@@ -32,7 +33,33 @@ try {
         ]
     );
 } catch (PDOException $e) {
-    die("Database connection failed: " . $e->getMessage());
+    // 2. Fallback for Localhost XAMPP environment (user: root, pass: empty)
+    try {
+        $pdo = new PDO(
+            "mysql:host=localhost;dbname=" . DB_NAME . ";charset=utf8mb4",
+            'root',
+            '',
+            [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            ]
+        );
+    } catch (PDOException $e2) {
+        // 3. Fallback for alternate local database name
+        try {
+            $pdo = new PDO(
+                "mysql:host=localhost;dbname=ems_db;charset=utf8mb4",
+                'root',
+                '',
+                [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                ]
+            );
+        } catch (PDOException $e3) {
+            die("Database connection failed: " . $e->getMessage());
+        }
+    }
 }
 
 // The admin panel and the API share one database, so they must share one set of
@@ -340,38 +367,39 @@ function validateAdminToken($token) {
 // =============================================
 function getMenuItems() {
     $menus = [
-        ['module' => '', 'label' => 'Dashboard', 'icon' => 'chart-bar', 'link' => 'dashboard.php'],
-        ['module' => 'employees', 'label' => 'Employees', 'icon' => 'users', 'link' => 'modules/employees.php'],
-        ['module' => 'attendance', 'label' => 'Attendance', 'icon' => 'calendar-check', 'link' => 'modules/attendance.php'],
-        ['module' => 'departments', 'label' => 'Departments', 'icon' => 'building', 'link' => 'modules/departments.php'],
-        ['module' => 'leave_requests', 'label' => 'Leave Requests', 'icon' => 'envelope-open-text', 'link' => 'modules/leave_requests.php'],
-        ['module' => 'leave_requests', 'label' => 'Leave Calendar', 'icon' => 'calendar-day', 'link' => 'modules/leave_calendar.php'],
-        ['module' => 'leave_requests', 'label' => 'Leave Report', 'icon' => 'chart-pie', 'link' => 'modules/leave_report.php'],
-        ['module' => 'holidays', 'label' => 'Holidays', 'icon' => 'calendar-alt', 'link' => 'modules/holidays.php'],
-        ['module' => 'daily_work_reports', 'label' => 'Work Reports', 'icon' => 'file-signature', 'link' => 'modules/work_reports.php'],
-        ['module' => 'tasks', 'label' => 'Tasks', 'icon' => 'tasks', 'link' => 'modules/tasks.php'],
-        ['module' => 'leads', 'label' => 'Leads', 'icon' => 'users-cog', 'link' => 'modules/leads.php'],
-        ['module' => 'campaigns', 'label' => 'Campaigns', 'icon' => 'bullhorn', 'link' => 'modules/campaigns.php'],
-        ['module' => 'call_reports', 'label' => 'Call Reports', 'icon' => 'phone-alt', 'link' => 'modules/call_reports.php'],
-        ['module' => 'follow_ups', 'label' => 'Follow Ups', 'icon' => 'clock', 'link' => 'modules/follow_ups.php'],
-        ['module' => 'hr_activities', 'label' => 'HR Activities', 'icon' => 'handshake', 'link' => 'modules/hr_activities.php'],
-        ['module' => 'salary', 'label' => 'Salary', 'icon' => 'money-bill-wave', 'link' => 'modules/salary.php'],
-        ['module' => 'reports', 'label' => 'Reports', 'icon' => 'file-alt', 'link' => 'modules/reports.php'],
-        ['module' => 'travel', 'label' => 'Travel', 'icon' => 'plane', 'link' => 'modules/travel.php'],
-        ['module' => 'expenses', 'label' => 'Expenses', 'icon' => 'receipt', 'link' => 'modules/expenses.php'],
-        ['module' => 'documents', 'label' => 'Documents', 'icon' => 'file-alt', 'link' => 'modules/documents.php'],
-        ['module' => 'assets', 'label' => 'Assets', 'icon' => 'box', 'link' => 'modules/assets.php'],
-        ['module' => 'notices', 'label' => 'Notices', 'icon' => 'bullhorn', 'link' => 'modules/notices.php'],
-        ['module' => 'notifications', 'label' => 'Notifications', 'icon' => 'bell', 'link' => 'modules/notifications.php'],
-        ['module' => 'meetings', 'label' => 'Meetings', 'icon' => 'calendar', 'link' => 'modules/meetings.php'],
-        ['module' => 'help', 'label' => 'Help Desk', 'icon' => 'headset', 'link' => 'modules/help.php'],
-        ['module' => 'downloads', 'label' => 'Downloads', 'icon' => 'download', 'link' => 'modules/downloads.php'],
-        ['module' => 'accounts', 'label' => 'Accounts', 'icon' => 'wallet', 'link' => 'modules/accounts.php'],
-        ['module' => 'marketing', 'label' => 'Marketing', 'icon' => 'chart-line', 'link' => 'modules/marketing.php'],
-        ['module' => 'it_team', 'label' => 'IT Team', 'icon' => 'laptop-code', 'link' => 'modules/it_team.php'],
-        ['module' => 'roles', 'label' => 'Roles', 'icon' => 'shield-alt', 'link' => 'modules/roles.php'],
-        ['module' => 'settings', 'label' => 'App Update', 'icon' => 'mobile-alt', 'link' => 'modules/app_update.php'],
-        ['module' => 'settings', 'label' => 'Settings', 'icon' => 'cog', 'link' => 'modules/settings.php'],
+        ['module' => '', 'label' => 'Dashboard', 'icon' => 'chart-bar', 'link' => 'dashboard'],
+        ['module' => 'employees', 'label' => 'Employees', 'icon' => 'users', 'link' => 'modules/employees'],
+        ['module' => 'attendance', 'label' => 'Attendance', 'icon' => 'calendar-check', 'link' => 'modules/attendance'],
+        ['module' => 'departments', 'label' => 'Departments', 'icon' => 'building', 'link' => 'modules/departments'],
+        ['module' => 'settings', 'label' => 'Branches', 'icon' => 'code-branch', 'link' => 'modules/branches'],
+        ['module' => 'leave_requests', 'label' => 'Leave Requests', 'icon' => 'envelope-open-text', 'link' => 'modules/leave_requests'],
+        ['module' => 'leave_requests', 'label' => 'Leave Calendar', 'icon' => 'calendar-day', 'link' => 'modules/leave_calendar'],
+        ['module' => 'leave_requests', 'label' => 'Leave Report', 'icon' => 'chart-pie', 'link' => 'modules/leave_report'],
+        ['module' => 'holidays', 'label' => 'Holidays', 'icon' => 'calendar-alt', 'link' => 'modules/holidays'],
+        ['module' => 'daily_work_reports', 'label' => 'Work Reports', 'icon' => 'file-signature', 'link' => 'modules/work_reports'],
+        ['module' => 'tasks', 'label' => 'Tasks', 'icon' => 'tasks', 'link' => 'modules/tasks'],
+        ['module' => 'leads', 'label' => 'Leads', 'icon' => 'users-cog', 'link' => 'modules/leads'],
+        ['module' => 'campaigns', 'label' => 'Campaigns', 'icon' => 'bullhorn', 'link' => 'modules/campaigns'],
+        ['module' => 'call_reports', 'label' => 'Call Reports', 'icon' => 'phone-alt', 'link' => 'modules/call_reports'],
+        ['module' => 'follow_ups', 'label' => 'Follow Ups', 'icon' => 'clock', 'link' => 'modules/follow_ups'],
+        ['module' => 'hr_activities', 'label' => 'HR Activities', 'icon' => 'handshake', 'link' => 'modules/hr_activities'],
+        ['module' => 'salary', 'label' => 'Salary', 'icon' => 'money-bill-wave', 'link' => 'modules/salary'],
+        ['module' => 'reports', 'label' => 'Reports', 'icon' => 'file-alt', 'link' => 'modules/reports'],
+        ['module' => 'travel', 'label' => 'Travel', 'icon' => 'plane', 'link' => 'modules/travel'],
+        ['module' => 'expenses', 'label' => 'Expenses', 'icon' => 'receipt', 'link' => 'modules/expenses'],
+        ['module' => 'documents', 'label' => 'Documents', 'icon' => 'file-alt', 'link' => 'modules/documents'],
+        ['module' => 'assets', 'label' => 'Assets', 'icon' => 'box', 'link' => 'modules/assets'],
+        ['module' => 'notices', 'label' => 'Notices', 'icon' => 'bullhorn', 'link' => 'modules/notices'],
+        ['module' => 'notifications', 'label' => 'Notifications', 'icon' => 'bell', 'link' => 'modules/notifications'],
+        ['module' => 'meetings', 'label' => 'Meetings', 'icon' => 'calendar', 'link' => 'modules/meetings'],
+        ['module' => 'help', 'label' => 'Help Desk', 'icon' => 'headset', 'link' => 'modules/help'],
+        ['module' => 'downloads', 'label' => 'Downloads', 'icon' => 'download', 'link' => 'modules/downloads'],
+        ['module' => 'accounts', 'label' => 'Accounts', 'icon' => 'wallet', 'link' => 'modules/accounts'],
+        ['module' => 'marketing', 'label' => 'Marketing', 'icon' => 'chart-line', 'link' => 'modules/marketing'],
+        ['module' => 'it_team', 'label' => 'IT Team', 'icon' => 'laptop-code', 'link' => 'modules/it_team'],
+        ['module' => 'roles', 'label' => 'Roles', 'icon' => 'shield-alt', 'link' => 'modules/roles'],
+        ['module' => 'settings', 'label' => 'App Update', 'icon' => 'mobile-alt', 'link' => 'modules/app_update'],
+        ['module' => 'settings', 'label' => 'Settings', 'icon' => 'cog', 'link' => 'modules/settings'],
     ];
     return $menus;
 }
