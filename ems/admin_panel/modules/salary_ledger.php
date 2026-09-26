@@ -96,118 +96,110 @@ if ($employee_id > 0) {
         // Auto-heal Akhtar Hussain payment to July 2026 if misallocated to September
         if ($selectedEmployee['id'] == 12 || ($selectedEmployee['employee_code'] ?? '') === 'YGI001' || stripos($selectedEmployee['first_name'] ?? '', 'Akhtar') !== false) {
             try {
-                // 1. Ensure July 2026 salary_processing row exists and is PAID
+                // 1. July 2026 -> Check if exists or insert
                 $stJ = $pdo->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-07'");
                 $stJ->execute([$employee_id]);
                 $jId = $stJ->fetchColumn();
+
                 if (!$jId) {
                     $pdo->prepare("
                         INSERT INTO salary_processing (
-                            employee_id, month_year, total_working_days, present_days, absent_days, half_days, late_days,
-                            paid_leaves, unpaid_leaves, earned_leaves, weekly_offs, holidays, monthly_salary, per_day_salary,
-                            base_earned_salary, bonus_amount, total_earnings, attendance_deductions, other_deductions,
-                            total_deductions, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
-                            payment_status, payment_date, payment_mode, notes, lock_status, created_at
+                            employee_id, month_year, total_days_in_month, daily_rate, base_earned_salary,
+                            net_salary, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
+                            present_days, payment_status, lock_status, notes, created_at
                         ) VALUES (
-                            ?, '2026-07', 31, 24, 0, 0, 0,
-                            0, 0, 0, 0, 0, 15000.00, 500.00,
-                            15000.00, 0, 0, 0, 0,
-                            0, 15000.00, 0.00, 15000.00, 15000.00, 0.00,
-                            'paid', '2026-08-13', 'bank_transfer', 'July 2026 Salary paid on 13 Aug 2026', 'finalized', NOW()
+                            ?, '2026-07', 31, 500.00, 15000.00,
+                            15000.00, 15000.00, 0.00, 15000.00, 15000.00, 0.00,
+                            31, 'paid', 'finalized', 'July 2026 Salary paid on 13 Aug 2026', NOW()
                         )
                     ")->execute([$employee_id]);
                     $jId = (int)$pdo->lastInsertId();
                 } else {
                     $pdo->prepare("
                         UPDATE salary_processing SET
-                            monthly_salary = 15000.00,
                             base_earned_salary = 15000.00,
-                            current_net_salary = 15000.00,
                             net_salary = 15000.00,
+                            current_net_salary = 15000.00,
                             previous_due = 0.00,
                             total_payable = 15000.00,
                             paid_amount = 15000.00,
                             remaining_due = 0.00,
                             payment_status = 'paid',
-                            payment_date = '2026-08-13',
-                            payment_mode = 'bank_transfer',
+                            lock_status = 'finalized',
                             notes = 'July 2026 Salary paid on 13 Aug 2026'
                         WHERE id = ?
                     ")->execute([$jId]);
                 }
 
-                // 2. Ensure August 2026 is UNPAID (Due: Rs. 15,000)
+                // 2. August 2026 -> Ensure UNPAID (Due: 15,000)
                 $stA = $pdo->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-08'");
                 $stA->execute([$employee_id]);
                 $aId = $stA->fetchColumn();
+
                 if (!$aId) {
                     $pdo->prepare("
                         INSERT INTO salary_processing (
-                            employee_id, month_year, total_working_days, present_days, absent_days, half_days, late_days,
-                            paid_leaves, unpaid_leaves, earned_leaves, weekly_offs, holidays, monthly_salary, per_day_salary,
-                            base_earned_salary, bonus_amount, total_earnings, attendance_deductions, other_deductions,
-                            total_deductions, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
-                            payment_status, payment_date, payment_mode, notes, lock_status, created_at
+                            employee_id, month_year, total_days_in_month, daily_rate, base_earned_salary,
+                            net_salary, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
+                            present_days, payment_status, lock_status, notes, created_at
                         ) VALUES (
-                            ?, '2026-08', 31, 31, 0, 0, 0,
-                            0, 0, 0, 0, 0, 15000.00, 500.00,
-                            15000.00, 0, 0, 0, 0,
-                            0, 15000.00, 0.00, 15000.00, 0.00, 15000.00,
-                            'unpaid', NULL, NULL, 'August 2026 Salary Pending', 'generated', NOW()
+                            ?, '2026-08', 31, 500.00, 15000.00,
+                            15000.00, 15000.00, 0.00, 15000.00, 0.00, 15000.00,
+                            31, 'unpaid', 'generated', 'August 2026 Salary Pending', NOW()
                         )
                     ")->execute([$employee_id]);
                 } else {
                     $pdo->prepare("
                         UPDATE salary_processing SET
-                            monthly_salary = 15000.00,
                             base_earned_salary = 15000.00,
-                            current_net_salary = 15000.00,
                             net_salary = 15000.00,
+                            current_net_salary = 15000.00,
                             previous_due = 0.00,
                             total_payable = 15000.00,
                             paid_amount = 0.00,
                             remaining_due = 15000.00,
                             payment_status = 'unpaid',
-                            payment_date = NULL,
-                            payment_mode = NULL,
                             notes = 'August 2026 Salary Pending'
                         WHERE id = ?
                     ")->execute([$aId]);
                 }
 
-                // 3. Ensure September 2026 is UNPAID (Due: Rs. 30,000)
+                // 3. September 2026 -> Reset to UNPAID (Total Due: 30,000)
                 $stS = $pdo->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-09'");
                 $stS->execute([$employee_id]);
                 $sId = $stS->fetchColumn();
+
                 if ($sId) {
                     $pdo->prepare("
                         UPDATE salary_processing SET
-                            monthly_salary = 15000.00,
                             base_earned_salary = 15000.00,
-                            current_net_salary = 15000.00,
                             net_salary = 15000.00,
+                            current_net_salary = 15000.00,
                             previous_due = 15000.00,
                             total_payable = 30000.00,
                             paid_amount = 0.00,
                             remaining_due = 30000.00,
                             payment_status = 'unpaid',
-                            payment_date = NULL,
-                            payment_mode = NULL,
                             notes = 'September 2026 Ongoing (August Due: Rs. 15k, Total Due: Rs. 30k)'
                         WHERE id = ?
                     ")->execute([$sId]);
                 }
 
                 // 4. Update salary_payments to link to July 2026 payroll record
-                $pdo->prepare("
-                    UPDATE salary_payments SET
-                        payroll_id = ?,
-                        payment_date = '2026-08-13',
-                        payment_method = 'bank_transfer',
-                        notes = 'July 2026 Salary payment received on 13 Aug 2026'
-                    WHERE employee_id = ?
-                ")->execute([$jId, $employee_id]);
-            } catch (Throwable $ex) {}
+                if ($jId > 0) {
+                    $pdo->prepare("
+                        UPDATE salary_payments SET
+                            payroll_id = ?,
+                            payment_date = '2026-08-13',
+                            payment_method = 'bank_transfer',
+                            reference_no = 'NEFT8456345432676223',
+                            notes = 'July 2026 Salary payment received on 13 Aug 2026'
+                        WHERE employee_id = ?
+                    ")->execute([$jId, $employee_id]);
+                }
+            } catch (Throwable $ex) {
+                error_log("Akhtar salary fix error: " . $ex->getMessage());
+            }
         }
 
         // Fetch existing salary processing records
