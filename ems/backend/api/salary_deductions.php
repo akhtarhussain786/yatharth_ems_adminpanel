@@ -9,7 +9,7 @@ function handleSalaryReportRequest($action, $param) {
     $month = filterMonth($data['month'] ?? ($data['month_year'] ?? date('Y-m')));
 
     $role = $auth['role'];
-    $isAdmin = in_array($role, ['super_admin', 'admin', 'hr', 'hr_admin', 'accounts_admin']);
+    $isAdmin = in_array($role, ['super_admin', 'admin', 'hr', 'hr_admin', 'accounts_admin', 'it_admin']);
 
     switch ($action) {
         case 'list':
