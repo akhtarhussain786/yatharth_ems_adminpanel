@@ -102,46 +102,64 @@ if ($employee_id > 0) {
         }
 
         // Fetch all payments for this employee
-        $payStmt = $pdo->prepare("
-            SELECT sp.*, 
-                   COALESCE(sp.payment_amount, sp.amount, 0) as payment_amount,
-                   COALESCE(sp.payment_amount, sp.amount, 0) as amount,
-                   u.username as created_by_name,
-                   spr.month_year as payroll_month_year
-            FROM salary_payments sp
-            LEFT JOIN users u ON u.id = sp.created_by
-            LEFT JOIN salary_processing spr ON spr.id = sp.payroll_id
-            WHERE sp.employee_id = ?
-            ORDER BY sp.payment_date DESC, sp.id DESC
-        ");
-        $payStmt->execute([$employee_id]);
-        $employeePayments = $payStmt->fetchAll();
+        try {
+            $payStmt = $pdo->prepare("
+                SELECT sp.*, 
+                       u.username as created_by_name,
+                       spr.month_year as payroll_month_year
+                FROM salary_payments sp
+                LEFT JOIN users u ON u.id = sp.created_by
+                LEFT JOIN salary_processing spr ON spr.id = sp.payroll_id
+                WHERE sp.employee_id = ?
+                ORDER BY sp.payment_date DESC, sp.id DESC
+            ");
+            $payStmt->execute([$employee_id]);
+            $employeePayments = $payStmt->fetchAll();
+            foreach ($employeePayments as &$epRef) {
+                $epRef['payment_amount'] = (float)($epRef['payment_amount'] ?? $epRef['amount'] ?? 0);
+                $epRef['amount'] = $epRef['payment_amount'];
+            }
+            unset($epRef);
+        } catch (Throwable $pe) {
+            $employeePayments = [];
+        }
 
         // Process months reverse chronologically
         for ($i = count($monthsList) - 1; $i >= 0; $i--) {
             $m = $monthsList[$i];
             $mName = date('F Y', strtotime($m . '-01'));
 
-            if (isset($procRecords[$m])) {
-                $pr = $procRecords[$m];
-                $netSal = (float)($pr['net_salary'] ?? $pr['current_net_salary'] ?? 0);
-                $paidAmt = (float)($pr['paid_amount'] ?? 0);
-                $status = strtolower($pr['payment_status'] ?? ($paidAmt >= $netSal ? 'paid' : ($paidAmt > 0 ? 'partially_paid' : 'unpaid')));
-                $remDue = (float)($pr['remaining_due'] ?? max(0, $netSal - $paidAmt));
-                $prevDue = (float)($pr['previous_due'] ?? 0);
-                $totPayable = (float)($pr['total_payable'] ?? ($netSal + $prevDue));
-                $payrollId = (int)$pr['id'];
-                $calcObj = $pr;
-            } else {
-                $calc = calculateEmployeeSalary($pdo, $employee_id, $m);
-                $netSal = (float)($calc['current_net_salary'] ?? $calc['monthly_salary'] ?? 0);
-                $paidAmt = (float)($calc['paid_amount'] ?? 0);
-                $status = strtolower($calc['payment_status'] ?? ($paidAmt >= $netSal ? 'paid' : ($paidAmt > 0 ? 'partially_paid' : 'unpaid')));
-                $remDue = (float)($calc['remaining_due'] ?? max(0, $netSal - $paidAmt));
-                $prevDue = (float)($calc['previous_due'] ?? 0);
-                $totPayable = (float)($calc['total_payable'] ?? ($netSal + $prevDue));
-                $payrollId = (int)($calc['payroll_id'] ?? 0);
-                $calcObj = $calc;
+            try {
+                if (isset($procRecords[$m])) {
+                    $pr = $procRecords[$m];
+                    $netSal = (float)($pr['net_salary'] ?? $pr['current_net_salary'] ?? $pr['base_earned_salary'] ?? 0);
+                    $paidAmt = (float)($pr['paid_amount'] ?? 0);
+                    $status = strtolower($pr['payment_status'] ?? ($paidAmt >= $netSal ? 'paid' : ($paidAmt > 0 ? 'partially_paid' : 'unpaid')));
+                    $remDue = (float)($pr['remaining_due'] ?? max(0, $netSal - $paidAmt));
+                    $prevDue = (float)($pr['previous_due'] ?? 0);
+                    $totPayable = (float)($pr['total_payable'] ?? ($netSal + $prevDue));
+                    $payrollId = (int)$pr['id'];
+                    $calcObj = $pr;
+                } else {
+                    $calc = calculateEmployeeSalary($pdo, $employee_id, $m);
+                    $netSal = (float)($calc['current_net_salary'] ?? $calc['monthly_salary'] ?? 0);
+                    $paidAmt = (float)($calc['paid_amount'] ?? 0);
+                    $status = strtolower($calc['payment_status'] ?? ($paidAmt >= $netSal ? 'paid' : ($paidAmt > 0 ? 'partially_paid' : 'unpaid')));
+                    $remDue = (float)($calc['remaining_due'] ?? max(0, $netSal - $paidAmt));
+                    $prevDue = (float)($calc['previous_due'] ?? 0);
+                    $totPayable = (float)($calc['total_payable'] ?? ($netSal + $prevDue));
+                    $payrollId = (int)($calc['payroll_id'] ?? 0);
+                    $calcObj = $calc;
+                }
+            } catch (Throwable $ce) {
+                $netSal = (float)($selectedEmployee['salary'] ?? 0);
+                $paidAmt = 0.0;
+                $status = 'unpaid';
+                $remDue = $netSal;
+                $prevDue = 0.0;
+                $totPayable = $netSal;
+                $payrollId = 0;
+                $calcObj = [];
             }
 
             // Filter payments for this month
@@ -206,11 +224,6 @@ if ($employee_id > 0) {
         $sMonth = date('Y-m', strtotime($jDate));
         $cMonth = date('Y-m');
 
-        // Fetch all processing records
-        $stmtP = $pdo->prepare("SELECT month_year, net_salary, current_net_salary, paid_amount, remaining_due, payment_status FROM salary_processing WHERE employee_id = ?");
-        $stmtP->execute([$eId]);
-        $rows = $stmtP->fetchAll();
-
         $eEarned = 0.0;
         $ePaid = 0.0;
         $eDue = 0.0;
@@ -218,23 +231,30 @@ if ($employee_id > 0) {
         $paidCount = 0;
         $unpaidCount = 0;
 
-        foreach ($rows as $r) {
-            $n = (float)($r['net_salary'] ?? $r['current_net_salary'] ?? 0);
-            $p = (float)($r['paid_amount'] ?? 0);
-            $d = (float)($r['remaining_due'] ?? max(0, $n - $p));
-            $st = strtolower($r['payment_status'] ?? ($p >= $n ? 'paid' : 'unpaid'));
+        try {
+            // Fetch all processing records
+            $stmtP = $pdo->prepare("SELECT * FROM salary_processing WHERE employee_id = ?");
+            $stmtP->execute([$eId]);
+            $rows = $stmtP->fetchAll();
 
-            $eEarned += $n;
-            $ePaid += $p;
-            $eDue += $d;
-            $mCount++;
+            foreach ($rows as $r) {
+                $n = (float)($r['net_salary'] ?? $r['current_net_salary'] ?? $r['base_earned_salary'] ?? 0);
+                $p = (float)($r['paid_amount'] ?? 0);
+                $d = (float)($r['remaining_due'] ?? max(0, $n - $p));
+                $st = strtolower($r['payment_status'] ?? ($p >= $n ? 'paid' : 'unpaid'));
 
-            if ($st === 'paid' || ($p >= $n && $n > 0)) {
-                $paidCount++;
-            } else {
-                $unpaidCount++;
+                $eEarned += $n;
+                $ePaid += $p;
+                $eDue += $d;
+                $mCount++;
+
+                if ($st === 'paid' || ($p >= $n && $n > 0)) {
+                    $paidCount++;
+                } else {
+                    $unpaidCount++;
+                }
             }
-        }
+        } catch (Throwable $e) {}
 
         $grandTotals['total_payroll'] += $eEarned;
         $grandTotals['total_paid']    += $ePaid;

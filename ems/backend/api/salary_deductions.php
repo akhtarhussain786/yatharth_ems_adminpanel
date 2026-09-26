@@ -244,18 +244,25 @@ function handleSalaryReportRequest($action, $param) {
             }
 
             // Fetch all payments for this employee
-            $stmtPay = $db->prepare("
-                SELECT sp.*, 
-                       COALESCE(sp.payment_amount, sp.amount, 0) as amount,
-                       COALESCE(sp.payment_amount, sp.amount, 0) as payment_amount,
-                       u.username as created_by_name
-                FROM salary_payments sp
-                LEFT JOIN users u ON u.id = sp.created_by
-                WHERE sp.employee_id = ?
-                ORDER BY sp.payment_date DESC, sp.id DESC
-            ");
-            $stmtPay->execute([$employeeId]);
-            $allPayments = $stmtPay->fetchAll();
+            try {
+                $stmtPay = $db->prepare("
+                    SELECT sp.*, 
+                           u.username as created_by_name
+                    FROM salary_payments sp
+                    LEFT JOIN users u ON u.id = sp.created_by
+                    WHERE sp.employee_id = ?
+                    ORDER BY sp.payment_date DESC, sp.id DESC
+                ");
+                $stmtPay->execute([$employeeId]);
+                $allPayments = $stmtPay->fetchAll();
+                foreach ($allPayments as &$pItem) {
+                    $pItem['amount'] = (float)($pItem['payment_amount'] ?? $pItem['amount'] ?? 0);
+                    $pItem['payment_amount'] = $pItem['amount'];
+                }
+                unset($pItem);
+            } catch (Throwable $pe) {
+                $allPayments = [];
+            }
 
             // Auto-heal Akhtar Hussain / single payment misallocation if found
             if (($empObj['employee_code'] === 'YGI001' || stripos($empObj['first_name'], 'Akhtar') !== false)) {
