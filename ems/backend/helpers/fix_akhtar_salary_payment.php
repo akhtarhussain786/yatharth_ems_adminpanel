@@ -20,7 +20,7 @@ try {
     echo "Found Employee: {$emp['first_name']} {$emp['last_name']} (ID: $empId, Code: {$emp['employee_code']})\n";
 
     // 1. Ensure July 2026 processing record exists
-    $stmtJul = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-07'");
+    $stmtJul = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-07' OR payroll_month = '2026-07')");
     $stmtJul->execute([$empId]);
     $julRow = $stmtJul->fetch();
     $julPayrollId = $julRow ? (int)$julRow['id'] : 0;
@@ -28,17 +28,19 @@ try {
     if (!$julPayrollId) {
         $stmtIns = $db->prepare("
             INSERT INTO salary_processing (
-                employee_id, month_year, total_working_days, present_days, absent_days, half_days, late_days,
-                paid_leaves, unpaid_leaves, earned_leaves, weekly_offs, holidays, monthly_salary, per_day_salary,
-                base_earned_salary, bonus_amount, total_earnings, attendance_deductions, other_deductions,
-                total_deductions, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
-                payment_status, payment_date, payment_mode, notes, lock_status, created_at
+                employee_id, month_year, payroll_month, total_days_in_month, eligible_days, daily_rate,
+                present_days, absent_days, half_days, late_days,
+                paid_leave_days, unpaid_leave_days, earned_leave_days, weekly_off_days, holiday_days,
+                basic_salary, base_earned_salary, allowances, deductions,
+                net_salary, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
+                payment_status, notes, lock_status, created_at
             ) VALUES (
-                ?, '2026-07', 31, 24, 0, 0, 0,
-                0, 0, 0, 0, 0, 15000.00, 500.00,
-                15000.00, 0, 0, 0, 0,
-                0, 15000.00, 0.00, 15000.00, 15000.00, 0.00,
-                'paid', '2026-08-13', 'bank_transfer', 'July 2026 Salary paid on 13 Aug 2026', 'finalized', NOW()
+                ?, '2026-07', '2026-07', 31, 24, 500.00,
+                0, 0, 0, 0,
+                0, 0, 0, 0, 0,
+                15000.00, 15000.00, 0.00, 0.00,
+                15000.00, 15000.00, 0.00, 15000.00, 15000.00, 0.00,
+                'paid', 'July 2026 Salary paid on 13 Aug 2026', 'finalized', NOW()
             )
         ");
         $stmtIns->execute([$empId]);
@@ -47,7 +49,8 @@ try {
     } else {
         $stmtUpdJul = $db->prepare("
             UPDATE salary_processing SET
-                monthly_salary = 15000.00,
+                basic_salary = 15000.00,
+                base_earned_salary = 15000.00,
                 current_net_salary = 15000.00,
                 net_salary = 15000.00,
                 previous_due = 0.00,
@@ -55,8 +58,7 @@ try {
                 paid_amount = 15000.00,
                 remaining_due = 0.00,
                 payment_status = 'paid',
-                payment_date = '2026-08-13',
-                payment_mode = 'bank_transfer',
+                lock_status = 'finalized',
                 notes = 'July 2026 Salary paid on 13 Aug 2026'
             WHERE id = ?
         ");
@@ -65,7 +67,7 @@ try {
     }
 
     // 2. Ensure August 2026 processing record exists
-    $stmtAug = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-08'");
+    $stmtAug = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-08' OR payroll_month = '2026-08')");
     $stmtAug->execute([$empId]);
     $augRow = $stmtAug->fetch();
     $augPayrollId = $augRow ? (int)$augRow['id'] : 0;
@@ -73,17 +75,19 @@ try {
     if (!$augPayrollId) {
         $stmtInsAug = $db->prepare("
             INSERT INTO salary_processing (
-                employee_id, month_year, total_working_days, present_days, absent_days, half_days, late_days,
-                paid_leaves, unpaid_leaves, earned_leaves, weekly_offs, holidays, monthly_salary, per_day_salary,
-                base_earned_salary, bonus_amount, total_earnings, attendance_deductions, other_deductions,
-                total_deductions, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
-                payment_status, payment_date, payment_mode, notes, lock_status, created_at
+                employee_id, month_year, payroll_month, total_days_in_month, eligible_days, daily_rate,
+                present_days, absent_days, half_days, late_days,
+                paid_leave_days, unpaid_leave_days, earned_leave_days, weekly_off_days, holiday_days,
+                basic_salary, base_earned_salary, allowances, deductions,
+                net_salary, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
+                payment_status, notes, lock_status, created_at
             ) VALUES (
-                ?, '2026-08', 31, 31, 0, 0, 0,
-                0, 0, 0, 0, 0, 15000.00, 500.00,
-                15000.00, 0, 0, 0, 0,
-                0, 15000.00, 0.00, 15000.00, 0.00, 15000.00,
-                'unpaid', NULL, NULL, 'August 2026 Salary Pending', 'generated', NOW()
+                ?, '2026-08', '2026-08', 31, 31, 500.00,
+                0, 0, 0, 0,
+                0, 0, 0, 0, 0,
+                15000.00, 15000.00, 0.00, 0.00,
+                15000.00, 15000.00, 0.00, 15000.00, 0.00, 15000.00,
+                'unpaid', 'August 2026 Salary Pending', 'generated', NOW()
             )
         ");
         $stmtInsAug->execute([$empId]);
@@ -92,7 +96,8 @@ try {
     } else {
         $stmtUpdAug = $db->prepare("
             UPDATE salary_processing SET
-                monthly_salary = 15000.00,
+                basic_salary = 15000.00,
+                base_earned_salary = 15000.00,
                 current_net_salary = 15000.00,
                 net_salary = 15000.00,
                 previous_due = 0.00,
@@ -100,7 +105,6 @@ try {
                 paid_amount = 0.00,
                 remaining_due = 15000.00,
                 payment_status = 'unpaid',
-                payment_date = NULL,
                 notes = 'August 2026 Salary Pending'
             WHERE id = ?
         ");
@@ -109,7 +113,7 @@ try {
     }
 
     // 3. Reset September 2026 processing record to unpaid (with previous due of 15,000 from August)
-    $stmtSep = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-09'");
+    $stmtSep = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-09' OR payroll_month = '2026-09')");
     $stmtSep->execute([$empId]);
     $sepRow = $stmtSep->fetch();
     $sepPayrollId = $sepRow ? (int)$sepRow['id'] : 0;
@@ -117,7 +121,8 @@ try {
     if ($sepPayrollId) {
         $stmtUpdSep = $db->prepare("
             UPDATE salary_processing SET
-                monthly_salary = 15000.00,
+                basic_salary = 15000.00,
+                base_earned_salary = 15000.00,
                 current_net_salary = 15000.00,
                 net_salary = 15000.00,
                 previous_due = 15000.00,
@@ -125,8 +130,6 @@ try {
                 paid_amount = 0.00,
                 remaining_due = 30000.00,
                 payment_status = 'unpaid',
-                payment_date = NULL,
-                payment_mode = NULL,
                 notes = 'September 2026 Ongoing (August Due: Rs. 15k, Total Due: Rs. 30k)'
             WHERE id = ?
         ");
@@ -135,7 +138,7 @@ try {
     }
 
     // 4. Fix salary_payments table: link payment of Rs. 15,000 to July 2026
-    $stmtPayCheck = $db->prepare("SELECT id, amount, payment_date, payroll_id FROM salary_payments WHERE employee_id = ?");
+    $stmtPayCheck = $db->prepare("SELECT id, payment_date, payroll_id FROM salary_payments WHERE employee_id = ?");
     $stmtPayCheck->execute([$empId]);
     $payments = $stmtPayCheck->fetchAll();
 
