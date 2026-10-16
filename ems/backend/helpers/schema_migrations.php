@@ -1546,6 +1546,82 @@ function runSchemaMigrations($db)
             ")->execute([$julId, $empId]);
         }
     });
+
+    // ---------------------------------------------------------------
+    // Offer Letter Generator module & table
+    // ---------------------------------------------------------------
+    SchemaGuard::ensure($db, 'offer_letters_module_v1', function ($db) {
+        SchemaGuard::reconcile($db, "CREATE TABLE IF NOT EXISTS offer_letters (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            offer_letter_no VARCHAR(100) NOT NULL UNIQUE,
+            template_type VARCHAR(50) DEFAULT 'appointment_letter',
+            title VARCHAR(150) DEFAULT 'APPOINTMENT LETTER',
+            employee_id INT NULL,
+            candidate_name VARCHAR(150) NOT NULL,
+            father_name VARCHAR(150) DEFAULT NULL,
+            email VARCHAR(150) DEFAULT NULL,
+            mobile VARCHAR(50) DEFAULT NULL,
+            address TEXT DEFAULT NULL,
+            department_id INT NULL,
+            department_name VARCHAR(100) DEFAULT NULL,
+            designation VARCHAR(150) NOT NULL,
+            employment_type VARCHAR(50) DEFAULT 'Full Time',
+            work_location VARCHAR(150) DEFAULT 'Siwan, Bihar',
+            reporting_manager VARCHAR(200) DEFAULT 'Miss Pooja Pandey (Admission & Marketing Head)',
+            issue_date DATE NOT NULL,
+            joining_date DATE NOT NULL,
+            acceptance_deadline DATE DEFAULT NULL,
+            probation_period VARCHAR(100) DEFAULT '3 Months',
+            working_hours VARCHAR(150) DEFAULT '09:30 AM to 06:30 PM',
+            monthly_salary DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            salary_words VARCHAR(255) DEFAULT NULL,
+            target_admissions INT DEFAULT 8,
+            target_revenue DECIMAL(12,2) DEFAULT 160000.00,
+            target_revenue_words VARCHAR(255) DEFAULT 'Rupees One Lakh Sixty Thousand Only',
+            notice_period VARCHAR(100) DEFAULT '30 Days',
+            liquidated_damages DECIMAL(12,2) DEFAULT 500000.00,
+            non_compete_radius VARCHAR(100) DEFAULT '150 kilometers',
+            non_compete_duration VARCHAR(100) DEFAULT 'twelve (12) calendar months',
+            jurisdiction_court VARCHAR(150) DEFAULT 'Siwan, Bihar',
+            company_name VARCHAR(200) DEFAULT 'Yatharth Group of Institution',
+            company_address TEXT DEFAULT '3rd Floor, B.G. Company Building Near Hospital More, Naya Bazar, Siwan (Bihar) - 841226',
+            company_phone VARCHAR(100) DEFAULT '+91-915-396-5656',
+            company_email VARCHAR(150) DEFAULT 'info@yatharthinstitution.com',
+            company_website VARCHAR(150) DEFAULT 'www.yatharthinstitution.com',
+            signatory_name VARCHAR(150) DEFAULT 'Pooja Pandey',
+            signatory_designation VARCHAR(150) DEFAULT 'Human Resource & Recruitment Division',
+            show_company_stamp TINYINT(1) DEFAULT 1,
+            show_signatory_signature TINYINT(1) DEFAULT 1,
+            subject VARCHAR(255) DEFAULT NULL,
+            terms_and_conditions LONGTEXT NULL,
+            additional_remarks TEXT NULL,
+            status ENUM('draft', 'generated', 'sent', 'accepted', 'rejected', 'cancelled') DEFAULT 'draft',
+            created_by INT NULL,
+            updated_by INT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_offer_emp (employee_id),
+            INDEX idx_offer_status (status),
+            INDEX idx_offer_issue_date (issue_date)
+        ) ENGINE=InnoDB");
+
+        // Seed permissions for offer_letters across administrative roles
+        $rolesStmt = $db->query("SELECT id, name FROM roles");
+        while ($r = $rolesStmt->fetch()) {
+            $roleName = $r['name'];
+            $roleId = (int)$r['id'];
+            if (in_array($roleName, ['super_admin', 'hr', 'hr_admin', 'admin', 'sub_admin', 'hr_executive'])) {
+                try {
+                    $chk = $db->prepare("SELECT id FROM permissions WHERE role_id = ? AND module = 'offer_letters'");
+                    $chk->execute([$roleId]);
+                    if (!$chk->fetch()) {
+                        $db->prepare("INSERT INTO permissions (role_id, module, can_view, can_create, can_edit, can_delete) VALUES (?, 'offer_letters', 1, 1, 1, 1)")
+                           ->execute([$roleId]);
+                    }
+                } catch (Throwable $pe) {}
+            }
+        }
+    });
 }
 
 

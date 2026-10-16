@@ -382,6 +382,7 @@ function getMenuItems() {
         ['module' => 'call_reports', 'label' => 'Call Reports', 'icon' => 'phone-alt', 'link' => 'modules/call_reports'],
         ['module' => 'follow_ups', 'label' => 'Follow Ups', 'icon' => 'clock', 'link' => 'modules/follow_ups'],
         ['module' => 'hr_activities', 'label' => 'HR Activities', 'icon' => 'handshake', 'link' => 'modules/hr_activities'],
+        ['module' => 'offer_letters', 'label' => 'Offer Letter Generator', 'icon' => 'file-signature', 'link' => 'modules/offer_letters'],
         ['module' => 'salary', 'label' => 'Salary', 'icon' => 'money-bill-wave', 'link' => 'modules/salary'],
         ['module' => 'salary', 'label' => 'Salary Ledger', 'icon' => 'book-open', 'link' => 'modules/salary_ledger'],
         ['module' => 'reports', 'label' => 'Reports', 'icon' => 'file-alt', 'link' => 'modules/reports'],

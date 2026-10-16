@@ -2535,3 +2535,236 @@ body.sidebar-collapsed .main-content {
     padding: 8px 16px 4px 16px;
     letter-spacing: 0.5px;
 }
+
+/* ============================================================
+   Offer Letter Generator & Print Styles
+   ============================================================ */
+.offer-preview-wrapper {
+    background: #4a5568;
+    padding: 24px 16px;
+    border-radius: 12px;
+    max-height: 86vh;
+    overflow-y: auto;
+    overflow-x: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    box-shadow: inset 0 2px 8px rgba(0,0,0,0.2);
+}
+.offer-preview-zoom-container {
+    transform-origin: top center;
+    transition: transform 0.2s ease;
+}
+.a4-page-sheet {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto 28px auto;
+    background: #ffffff;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    position: relative;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    text-align: left;
+    color: #111827;
+    font-family: 'Times New Roman', Times, Georgia, serif;
+    page-break-after: always;
+}
+.a4-page-header {
+    background: #0e646a;
+    color: #ffffff;
+    padding: 10px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-sizing: border-box;
+    min-height: 68px;
+}
+.a4-page-header .brand-area {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.a4-page-header .brand-logo-img {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+    border-radius: 50%;
+    background: #ffffff;
+    padding: 1px;
+}
+.a4-page-header .brand-title {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    color: #ffffff;
+    text-transform: uppercase;
+    line-height: 1.15;
+}
+.a4-page-header .contact-area {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #ffffff;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-align: right;
+    line-height: 1.5;
+}
+.a4-page-body {
+    padding: 22px 34px 20px 34px;
+    flex: 1 1 auto;
+    box-sizing: border-box;
+    font-size: 10pt;
+    line-height: 1.45;
+    position: relative;
+    color: #111827;
+}
+.a4-page-body p, .a4-page-body li {
+    font-size: 9.8pt;
+    line-height: 1.45;
+    text-align: justify;
+    margin-bottom: 6px;
+    color: #111827;
+}
+.a4-page-body .doc-main-title {
+    font-size: 18pt;
+    font-weight: 900;
+    text-decoration: underline;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-top: 4px;
+    margin-bottom: 16px;
+    color: #000000;
+}
+.a4-page-body .doc-section-title {
+    font-size: 10.5pt;
+    font-weight: 900;
+    text-transform: uppercase;
+    margin-top: 14px;
+    margin-bottom: 7px;
+    color: #000000;
+    letter-spacing: 0.3px;
+}
+.a4-page-body .doc-sub-heading {
+    font-size: 10pt;
+    font-weight: 800;
+    margin-top: 10px;
+    margin-bottom: 5px;
+    color: #111827;
+}
+.a4-page-footer {
+    background: #0e646a;
+    color: #ffffff;
+    padding: 7px 16px;
+    text-align: center;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    box-sizing: border-box;
+    min-height: 30px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.a4-page-sheet .page-number-tag {
+    position: absolute;
+    bottom: 34px;
+    right: 28px;
+    font-family: 'Inter', sans-serif;
+    font-size: 7.5pt;
+    color: #6b7280;
+    font-weight: 600;
+}
+.official-stamp-seal {
+    display: inline-block;
+    position: relative;
+    user-select: none;
+}
+.official-stamp-seal .sig-overlay {
+    position: absolute;
+    top: 36px;
+    left: 15px;
+    font-family: 'Brush Script MT', 'Dancing Script', cursive, serif;
+    font-size: 21px;
+    font-weight: 700;
+    color: #1e3a8a;
+    transform: rotate(-9deg);
+    opacity: 0.95;
+    pointer-events: none;
+    letter-spacing: 0.5px;
+}
+.candidate-init-seal {
+    font-family: 'Brush Script MT', 'Dancing Script', cursive, serif;
+    font-size: 20px;
+    color: #1e3a8a;
+    transform: rotate(-6deg);
+    font-weight: 700;
+    display: inline-block;
+}
+.thumb-impression-box {
+    width: 90px;
+    height: 100px;
+    border: 1.5px dashed #64748b;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 8pt;
+    font-family: 'Inter', sans-serif;
+    text-align: center;
+    padding: 4px;
+}
+
+@media print {
+    html, body {
+        background: #ffffff !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+    .sidebar, .main-header, .sidebar-overlay, .btn, .no-print, .alert, .card-header,
+    .nav, footer, .modal, .card-footer, .breadcrumb, #formPanelCol, .offer-action-bar {
+        display: none !important;
+    }
+    .main-content {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+    }
+    .page-content {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+    .offer-preview-wrapper {
+        background: transparent !important;
+        padding: 0 !important;
+        max-height: none !important;
+        overflow: visible !important;
+        box-shadow: none !important;
+        display: block !important;
+    }
+    .offer-preview-zoom-container {
+        transform: none !important;
+    }
+    .a4-page-sheet {
+        margin: 0 !important;
+        box-shadow: none !important;
+        width: 100% !important;
+        min-height: 297mm !important;
+        height: 297mm !important;
+        page-break-after: always !important;
+        page-break-inside: avoid !important;
+    }
+    @page {
+        size: A4 portrait;
+        margin: 0mm;
+    }
+}
