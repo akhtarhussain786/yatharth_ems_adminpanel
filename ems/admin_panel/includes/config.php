@@ -294,6 +294,7 @@ function hasModuleAccess($module, $action = 'can_view') {
     if (!isset($_SESSION['admin_role'])) return false;
     $role = strtolower(trim((string)$_SESSION['admin_role']));
     if ($role === 'super_admin' || $role === 'admin') return true;
+    if ($module === 'offer_letters' && in_array($role, ['hr', 'hr_admin', 'sub_admin'])) return true;
 
     // The seeds name some modules two different ways — 'leave_requests' vs
     // 'leaves', 'daily_work_reports' vs 'work_reports' — so a permission granted

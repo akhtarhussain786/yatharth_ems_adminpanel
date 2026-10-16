@@ -10,10 +10,8 @@ if (!isLoggedIn()) {
     redirect(BASE_URL . 'index');
 }
 
-requireModuleAccess('offer_letters');
-
 // ============================================================
-// Self-Healing: Ensure offer_letters table & permissions exist
+// Self-Healing: Ensure offer_letters table & permissions exist FIRST
 // ============================================================
 try {
     $pdo->query("SELECT 1 FROM offer_letters LIMIT 1");
@@ -83,6 +81,8 @@ try {
     }
 }
 
+requireModuleAccess('offer_letters');
+
 // ============================================================
 // Helper: Convert Number to Indian Words (Rupees ... Only)
 // ============================================================
@@ -132,17 +132,21 @@ if (!function_exists('numberToWordsINR')) {
 // ============================================================
 if (!function_exists('generateNextOfferLetterNo')) {
     function generateNextOfferLetterNo($pdo) {
-        $year = date('Y');
-        $prefix = "YGI/AL/{$year}/";
-        $stmt = $pdo->prepare("SELECT offer_letter_no FROM offer_letters WHERE offer_letter_no LIKE ? ORDER BY id DESC LIMIT 1");
-        $stmt->execute([$prefix . '%']);
-        $last = $stmt->fetchColumn();
-        if ($last && preg_match('/\/(\d+)$/', $last, $m)) {
-            $next = str_pad((int)$m[1] + 1, 4, '0', STR_PAD_LEFT);
-        } else {
-            $next = '0001';
+        try {
+            $year = date('Y');
+            $prefix = "YGI/AL/{$year}/";
+            $stmt = $pdo->prepare("SELECT offer_letter_no FROM offer_letters WHERE offer_letter_no LIKE ? ORDER BY id DESC LIMIT 1");
+            $stmt->execute([$prefix . '%']);
+            $last = $stmt->fetchColumn();
+            if ($last && preg_match('/\/(\d+)$/', $last, $m)) {
+                $next = str_pad((int)$m[1] + 1, 4, '0', STR_PAD_LEFT);
+            } else {
+                $next = '0001';
+            }
+            return $prefix . $next;
+        } catch (Throwable $e) {
+            return "YGI/AL/" . date('Y') . "/0001";
         }
-        return $prefix . $next;
     }
 }
 
@@ -1864,9 +1868,14 @@ if ($where) {
 }
 $sql .= " ORDER BY ol.id DESC";
 
-$stmt = $pdo->prepare($sql);
-$stmt->execute($params);
-$offerLetters = $stmt->fetchAll();
+$offerLetters = [];
+try {
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $offerLetters = $stmt->fetchAll();
+} catch (Throwable $e) {
+    error_log("Offer letters list query error: " . $e->getMessage());
+}
 
 // KPI counts
 $kpiTotal = 0;
