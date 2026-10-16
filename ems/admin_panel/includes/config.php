@@ -292,7 +292,8 @@ function sanitize($input) {
 function hasModuleAccess($module, $action = 'can_view') {
     global $pdo;
     if (!isset($_SESSION['admin_role'])) return false;
-    if ($_SESSION['admin_role'] === 'super_admin') return true;
+    $role = strtolower(trim((string)$_SESSION['admin_role']));
+    if ($role === 'super_admin' || $role === 'admin') return true;
 
     // The seeds name some modules two different ways — 'leave_requests' vs
     // 'leaves', 'daily_work_reports' vs 'work_reports' — so a permission granted
@@ -303,6 +304,7 @@ function hasModuleAccess($module, $action = 'can_view') {
         'leaves'             => ['leave_requests'],
         'daily_work_reports' => ['work_reports'],
         'work_reports'       => ['daily_work_reports'],
+        'offer_letters'      => ['offer_letter'],
     ];
     $names = array_merge([$module], $aliases[$module] ?? []);
 
@@ -310,7 +312,7 @@ function hasModuleAccess($module, $action = 'can_view') {
         $in = implode(',', array_fill(0, count($names), '?'));
         $stmt = $pdo->prepare("SELECT MAX($action) AS granted FROM permissions
                                WHERE role_id = ? AND module IN ($in)");
-        $stmt->execute(array_merge([$_SESSION['admin_role_id']], $names));
+        $stmt->execute(array_merge([$_SESSION['admin_role_id'] ?? 0], $names));
         $result = $stmt->fetch();
         return $result && $result['granted'] !== null && $result['granted'] == 1;
     } catch (Exception $e) {
@@ -320,9 +322,10 @@ function hasModuleAccess($module, $action = 'can_view') {
 
 function requireModuleAccess($module, $action = 'can_view') {
     if (!hasModuleAccess($module, $action)) {
-        if (!isLoggedIn()) redirect('index.php');
-        echo '<div class="alert alert-danger m-4">Access denied: insufficient permissions</div>';
-        require_once 'footer.php';
+        if (!isLoggedIn()) redirect(BASE_URL . 'index');
+        require_once __DIR__ . '/header.php';
+        echo '<div class="container-fluid p-4"><div class="alert alert-danger shadow-sm"><i class="fas fa-lock me-2"></i>Access denied: insufficient permissions to access ' . htmlspecialchars($module) . '</div></div>';
+        require_once __DIR__ . '/footer.php';
         exit;
     }
 }

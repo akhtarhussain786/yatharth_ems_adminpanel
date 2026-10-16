@@ -12,7 +12,7 @@ $allModules = [
     'hr_activities', 'notices', 'documents', 'activity_logs', 'roles',
     'permissions', 'users', 'marketing', 'telecaller', 'sales',
     'travel', 'expenses', 'assets', 'meetings', 'notifications',
-    'downloads', 'help', 'accounts', 'it_team'
+    'downloads', 'help', 'accounts', 'it_team', 'offer_letters'
 ];
 
 $moduleLabels = [
@@ -50,6 +50,7 @@ $moduleLabels = [
     'help' => 'Help Desk',
     'accounts' => 'Accounts',
     'it_team' => 'IT Team',
+    'offer_letters' => 'Offer Letters',
 ];
 
 // Handle AJAX: save permissions

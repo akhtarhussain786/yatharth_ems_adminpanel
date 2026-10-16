@@ -13,6 +13,77 @@ if (!isLoggedIn()) {
 requireModuleAccess('offer_letters');
 
 // ============================================================
+// Self-Healing: Ensure offer_letters table & permissions exist
+// ============================================================
+try {
+    $pdo->query("SELECT 1 FROM offer_letters LIMIT 1");
+} catch (Throwable $e) {
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS offer_letters (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            offer_letter_no VARCHAR(100) NOT NULL UNIQUE,
+            template_type VARCHAR(50) DEFAULT 'appointment_letter',
+            title VARCHAR(150) DEFAULT 'APPOINTMENT LETTER',
+            employee_id INT NULL,
+            candidate_name VARCHAR(150) NOT NULL,
+            father_name VARCHAR(150) DEFAULT NULL,
+            email VARCHAR(150) DEFAULT NULL,
+            mobile VARCHAR(50) DEFAULT NULL,
+            address TEXT DEFAULT NULL,
+            department_id INT NULL,
+            department_name VARCHAR(100) DEFAULT NULL,
+            designation VARCHAR(150) NOT NULL,
+            employment_type VARCHAR(50) DEFAULT 'Full Time',
+            work_location VARCHAR(150) DEFAULT 'Siwan, Bihar',
+            reporting_manager VARCHAR(200) DEFAULT 'Miss Pooja Pandey (Admission & Marketing Head)',
+            issue_date DATE NOT NULL,
+            joining_date DATE NOT NULL,
+            acceptance_deadline DATE DEFAULT NULL,
+            probation_period VARCHAR(100) DEFAULT '3 Months',
+            working_hours VARCHAR(150) DEFAULT '09:30 AM to 06:30 PM',
+            monthly_salary DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            salary_words VARCHAR(255) DEFAULT NULL,
+            target_admissions INT DEFAULT 8,
+            target_revenue DECIMAL(12,2) DEFAULT 160000.00,
+            target_revenue_words VARCHAR(255) DEFAULT 'Rupees One Lakh Sixty Thousand Only',
+            notice_period VARCHAR(100) DEFAULT '30 Days',
+            liquidated_damages DECIMAL(12,2) DEFAULT 500000.00,
+            non_compete_radius VARCHAR(100) DEFAULT '150 kilometers',
+            non_compete_duration VARCHAR(100) DEFAULT 'twelve (12) calendar months',
+            jurisdiction_court VARCHAR(150) DEFAULT 'Siwan, Bihar',
+            company_name VARCHAR(200) DEFAULT 'Yatharth Group of Institution',
+            company_address TEXT DEFAULT '3rd Floor, B.G. Company Building Near Hospital More, Naya Bazar, Siwan (Bihar) - 841226',
+            company_phone VARCHAR(100) DEFAULT '+91-915-396-5656',
+            company_email VARCHAR(150) DEFAULT 'info@yatharthinstitution.com',
+            company_website VARCHAR(150) DEFAULT 'www.yatharthinstitution.com',
+            signatory_name VARCHAR(150) DEFAULT 'Pooja Pandey',
+            signatory_designation VARCHAR(150) DEFAULT 'Human Resource & Recruitment Division',
+            show_company_stamp TINYINT(1) DEFAULT 1,
+            show_signatory_signature TINYINT(1) DEFAULT 1,
+            subject VARCHAR(255) DEFAULT NULL,
+            terms_and_conditions LONGTEXT NULL,
+            additional_remarks TEXT NULL,
+            status ENUM('draft', 'generated', 'sent', 'accepted', 'rejected', 'cancelled') DEFAULT 'draft',
+            created_by INT NULL,
+            updated_by INT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_offer_emp (employee_id),
+            INDEX idx_offer_status (status),
+            INDEX idx_offer_issue_date (issue_date)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $rolesStmt = $pdo->query("SELECT id FROM roles");
+        while ($r = $rolesStmt->fetch()) {
+            $pdo->prepare("INSERT IGNORE INTO permissions (role_id, module, can_view, can_create, can_edit, can_delete) VALUES (?, 'offer_letters', 1, 1, 1, 1)")
+                ->execute([(int)$r['id']]);
+        }
+    } catch (Throwable $e2) {
+        error_log("offer_letters self-heal table creation: " . $e2->getMessage());
+    }
+}
+
+// ============================================================
 // Helper: Convert Number to Indian Words (Rupees ... Only)
 // ============================================================
 if (!function_exists('numberToWordsINR')) {
@@ -93,13 +164,19 @@ $defaultCompany = [
 ];
 
 // Fetch departments and active employees for dropdowns
-$departments = $pdo->query("SELECT id, name FROM departments ORDER BY name ASC")->fetchAll();
-$employeesList = $pdo->query("SELECT e.id, e.employee_code, e.first_name, e.last_name, e.email, e.mobile, e.address, e.salary, e.joining_date, d.name AS dept_name, des.name AS des_name 
-                              FROM employees e 
-                              LEFT JOIN departments d ON d.id = e.department_id 
-                              LEFT JOIN designations des ON des.id = e.designation_id 
-                              WHERE e.status = 1 
-                              ORDER BY e.first_name ASC")->fetchAll();
+$departments = [];
+$employeesList = [];
+try {
+    $departments = $pdo->query("SELECT id, name FROM departments ORDER BY name ASC")->fetchAll();
+    $employeesList = $pdo->query("SELECT e.id, e.employee_code, e.first_name, e.last_name, e.email, e.mobile, e.address, e.salary, e.joining_date, d.name AS dept_name, des.name AS des_name 
+                                  FROM employees e 
+                                  LEFT JOIN departments d ON d.id = e.department_id 
+                                  LEFT JOIN designations des ON des.id = e.designation_id 
+                                  WHERE e.status = 1 
+                                  ORDER BY e.first_name ASC")->fetchAll();
+} catch (Throwable $e) {
+    error_log("Offer letters init dropdowns: " . $e->getMessage());
+}
 
 // ============================================================
 // POST REQUEST PROCESSING (Save / Delete / Update Status)
@@ -1792,10 +1869,18 @@ $stmt->execute($params);
 $offerLetters = $stmt->fetchAll();
 
 // KPI counts
-$kpiTotal = (int)$pdo->query("SELECT COUNT(*) FROM offer_letters")->fetchColumn();
-$kpiDraft = (int)$pdo->query("SELECT COUNT(*) FROM offer_letters WHERE status = 'draft'")->fetchColumn();
-$kpiGenerated = (int)$pdo->query("SELECT COUNT(*) FROM offer_letters WHERE status = 'generated'")->fetchColumn();
-$kpiAccepted = (int)$pdo->query("SELECT COUNT(*) FROM offer_letters WHERE status = 'accepted'")->fetchColumn();
+$kpiTotal = 0;
+$kpiDraft = 0;
+$kpiGenerated = 0;
+$kpiAccepted = 0;
+try {
+    $kpiTotal = (int)$pdo->query("SELECT COUNT(*) FROM offer_letters")->fetchColumn();
+    $kpiDraft = (int)$pdo->query("SELECT COUNT(*) FROM offer_letters WHERE status = 'draft'")->fetchColumn();
+    $kpiGenerated = (int)$pdo->query("SELECT COUNT(*) FROM offer_letters WHERE status = 'generated'")->fetchColumn();
+    $kpiAccepted = (int)$pdo->query("SELECT COUNT(*) FROM offer_letters WHERE status = 'accepted'")->fetchColumn();
+} catch (Throwable $e) {
+    error_log("Offer letters KPI query error: " . $e->getMessage());
+}
 
 require_once __DIR__ . '/../includes/header.php';
 ?>
