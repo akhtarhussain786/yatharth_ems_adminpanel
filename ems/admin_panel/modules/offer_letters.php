@@ -479,6 +479,7 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
     $showSig = !empty($d['show_signatory_signature']);
     $candInitials = '';
     $candInitialSig = '';
+    $offerLetterNo = htmlspecialchars($d['offer_letter_no'] ?? '');
 
     // Reusable Header
     $headerHtml = '
@@ -530,6 +531,11 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
         <div class="a4-page-body">
             <div class="doc-main-title"><?php echo $docTitle; ?></div>
 
+            <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom" style="font-size: 10pt; font-family: 'Inter', sans-serif;">
+                <div><strong>Ref. / Offer Letter No.:</strong> <span class="fw-bold text-primary doc-ref-no-val"><?php echo $offerLetterNo; ?></span></div>
+                <div><strong>Date of Issue:</strong> <span><?php echo $issueDate; ?></span></div>
+            </div>
+
             <div class="mb-3" style="font-size: 10pt; line-height: 1.45;">
                 <div>To,</div>
                 <div class="fw-bold" style="font-size: 11pt;"><?php echo $cName; ?></div>
@@ -580,6 +586,7 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
                 <?php if ($showStamp): echo $stampHtml; endif; ?>
             </div>
         </div>
+        <div class="doc-ref-tag">Ref: <span class="doc-ref-no-val"><?php echo $offerLetterNo; ?></span></div>
         <div class="page-number-tag">Page 1 of 5</div>
         <?php echo $footerHtml; ?>
     </div>
@@ -627,6 +634,7 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
                 <?php if ($showStamp): echo $stampHtml; endif; ?>
             </div>
         </div>
+        <div class="doc-ref-tag">Ref: <span class="doc-ref-no-val"><?php echo $offerLetterNo; ?></span></div>
         <div class="page-number-tag">Page 2 of 5</div>
         <?php echo $footerHtml; ?>
     </div>
@@ -664,6 +672,7 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
                 <?php if ($showStamp): echo $stampHtml; endif; ?>
             </div>
         </div>
+        <div class="doc-ref-tag">Ref: <span class="doc-ref-no-val"><?php echo $offerLetterNo; ?></span></div>
         <div class="page-number-tag">Page 3 of 5</div>
         <?php echo $footerHtml; ?>
     </div>
@@ -705,6 +714,7 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
                 <?php if ($showStamp): echo $stampHtml; endif; ?>
             </div>
         </div>
+        <div class="doc-ref-tag">Ref: <span class="doc-ref-no-val"><?php echo $offerLetterNo; ?></span></div>
         <div class="page-number-tag">Page 4 of 5</div>
         <?php echo $footerHtml; ?>
     </div>
@@ -771,6 +781,7 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
                 </div>
             </div>
         </div>
+        <div class="doc-ref-tag">Ref: <span class="doc-ref-no-val"><?php echo $offerLetterNo; ?></span></div>
         <div class="page-number-tag">Page 5 of 5</div>
         <?php echo $footerHtml; ?>
     </div>
@@ -1414,9 +1425,13 @@ if ($action === 'create' || $action === 'edit') {
         } catch(e) {}
 
         const candInitialSig = '';
+        const offerLetterNo = (document.getElementById('field_offer_letter_no') && document.getElementById('field_offer_letter_no').value) 
+            ? document.getElementById('field_offer_letter_no').value 
+            : 'YGI/AL/<?php echo date('Y'); ?>/0001';
 
         // Update elements across the preview DOM
         document.querySelectorAll('.doc-main-title').forEach(el => el.innerText = docTitle);
+        document.querySelectorAll('.doc-ref-no-val').forEach(el => el.innerText = offerLetterNo);
         
         // Stamp visibility
         document.querySelectorAll('.official-stamp-seal').forEach(el => {
@@ -1437,7 +1452,7 @@ if ($action === 'create' || $action === 'edit') {
                 cName, fName, address, mobile, joiningFormatted, issueFormatted,
                 desig, desigUpper, mgr, mgrShort, location, salary, salaryWords,
                 targetAdm, targetRev, targetRevWords, court, sigName, sigDesig,
-                showStamp, docTitle, candInitialSig
+                showStamp, docTitle, candInitialSig, offerLetterNo
             });
         }
 
@@ -1493,6 +1508,11 @@ if ($action === 'create' || $action === 'edit') {
                 ${headerMarkup}
                 <div class="a4-page-body">
                     <div class="doc-main-title">${p.docTitle}</div>
+
+                    <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom" style="font-size: 10pt; font-family: 'Inter', sans-serif;">
+                        <div><strong>Ref. / Offer Letter No.:</strong> <span class="fw-bold text-primary doc-ref-no-val">${p.offerLetterNo}</span></div>
+                        <div><strong>Date of Issue:</strong> <span>${p.issueFormatted}</span></div>
+                    </div>
                     <div class="mb-3" style="font-size: 10pt; line-height: 1.45;">
                         <div>To,</div>
                         <div class="fw-bold" style="font-size: 11pt;">${p.cName}</div>
@@ -1535,6 +1555,7 @@ if ($action === 'create' || $action === 'edit') {
                         ${stampMarkup}
                     </div>
                 </div>
+                <div class="doc-ref-tag">Ref: <span class="doc-ref-no-val">${p.offerLetterNo}</span></div>
                 <div class="page-number-tag">Page 1 of 5</div>
                 ${footerMarkup}
             </div>
@@ -1580,6 +1601,7 @@ if ($action === 'create' || $action === 'edit') {
                         ${stampMarkup}
                     </div>
                 </div>
+                <div class="doc-ref-tag">Ref: <span class="doc-ref-no-val">${p.offerLetterNo}</span></div>
                 <div class="page-number-tag">Page 2 of 5</div>
                 ${footerMarkup}
             </div>
@@ -1614,6 +1636,7 @@ if ($action === 'create' || $action === 'edit') {
                         ${stampMarkup}
                     </div>
                 </div>
+                <div class="doc-ref-tag">Ref: <span class="doc-ref-no-val">${p.offerLetterNo}</span></div>
                 <div class="page-number-tag">Page 3 of 5</div>
                 ${footerMarkup}
             </div>
@@ -1653,6 +1676,7 @@ if ($action === 'create' || $action === 'edit') {
                         ${stampMarkup}
                     </div>
                 </div>
+                <div class="doc-ref-tag">Ref: <span class="doc-ref-no-val">${p.offerLetterNo}</span></div>
                 <div class="page-number-tag">Page 4 of 5</div>
                 ${footerMarkup}
             </div>
@@ -1718,6 +1742,7 @@ if ($action === 'create' || $action === 'edit') {
                         </div>
                     </div>
                 </div>
+                <div class="doc-ref-tag">Ref: <span class="doc-ref-no-val">${p.offerLetterNo}</span></div>
                 <div class="page-number-tag">Page 5 of 5</div>
                 ${footerMarkup}
             </div>

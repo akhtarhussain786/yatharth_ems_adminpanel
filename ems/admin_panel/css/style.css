@@ -2679,6 +2679,16 @@ body.sidebar-collapsed .main-content {
     color: #6b7280;
     font-weight: 600;
 }
+.a4-page-sheet .doc-ref-tag {
+    position: absolute;
+    bottom: 34px;
+    left: 28px;
+    font-family: 'Inter', sans-serif;
+    font-size: 7.5pt;
+    color: #4b5563;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
 .official-stamp-seal {
     display: inline-block;
     position: relative;
