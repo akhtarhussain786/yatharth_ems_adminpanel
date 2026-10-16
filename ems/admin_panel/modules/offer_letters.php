@@ -444,20 +444,21 @@ if ($action === 'print' && $currentId > 0) {
 // ============================================================
 if (!function_exists('renderAppointmentLetterPages')) {
 function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) {
-    $cName = htmlspecialchars($d['candidate_name'] ?? 'Candidate Name');
+    $cName = !empty($d['candidate_name']) ? htmlspecialchars($d['candidate_name']) : '[ Candidate Name ]';
     $fName = htmlspecialchars($d['father_name'] ?? '');
     $address = nl2br(htmlspecialchars($d['address'] ?? ''));
     $mobile = htmlspecialchars($d['mobile'] ?? '');
-    $joiningDate = !empty($d['joining_date']) ? date('jS F, Y', strtotime($d['joining_date'])) : '24th August, 2026';
+    $joiningDate = !empty($d['joining_date']) ? date('jS F, Y', strtotime($d['joining_date'])) : date('jS F, Y');
     $issueDate = !empty($d['issue_date']) ? date('d/m/Y', strtotime($d['issue_date'])) : date('d/m/Y');
-    $designation = htmlspecialchars($d['designation'] ?? 'SENIOR ADMISSION FIELD MARKETING EXECUTIVE');
+    $designation = !empty($d['designation']) ? htmlspecialchars($d['designation']) : '[ Designation ]';
     $designationUpper = strtoupper($designation);
     $mgr = htmlspecialchars($d['reporting_manager'] ?? 'Miss Pooja Pandey (Admission & Marketing Head)');
     // Extract short manager name
     $mgrShort = preg_match('/^(Miss|Mr\.|Mrs\.|Dr\.)?\s*([^(\n\r]+)/', $mgr, $mm) ? trim($mm[0]) : $mgr;
     $location = htmlspecialchars($d['work_location'] ?? 'Siwan district and surrounding zones of Bihar');
-    $salary = number_format((float)($d['monthly_salary'] ?? 15000), 2);
-    $salaryWords = htmlspecialchars($d['salary_words'] ?? 'Rupees Fifteen Thousand Only');
+    $salaryVal = (float)($d['monthly_salary'] ?? 0);
+    $salary = $salaryVal > 0 ? number_format($salaryVal, 2) : '0.00';
+    $salaryWords = htmlspecialchars($d['salary_words'] ?? '');
     $targetAdm = (int)($d['target_admissions'] ?? 8);
     $targetRev = number_format((float)($d['target_revenue'] ?? 160000), 2);
     $targetRevWords = htmlspecialchars($d['target_revenue_words'] ?? 'Rupees One Lakh Sixty Thousand Only');
@@ -901,24 +902,24 @@ if ($action === 'create' || $action === 'edit') {
         'template_type'         => 'appointment_letter',
         'title'                 => 'APPOINTMENT LETTER',
         'employee_id'           => '',
-        'candidate_name'        => 'Md. Afroz Ansari',
-        'father_name'           => 'Md. Shahabuddin Ansari',
-        'email'                 => 'afroz.ansari@yatharth.com',
-        'mobile'                => '8262836979',
-        'address'               => "Hindustan Rice Mill At Yergaon Po Pipari Dixit Tah Mul, Yergaon Alias Belgaon, PO Bembal, Dist: Chandrapur, Maharastra",
-        'department_id'         => 3,
-        'department_name'       => 'Sales & Marketing',
-        'designation'           => 'Senior Admission Field Marketing Executive',
+        'candidate_name'        => '',
+        'father_name'           => '',
+        'email'                 => '',
+        'mobile'                => '',
+        'address'               => '',
+        'department_id'         => '',
+        'department_name'       => '',
+        'designation'           => '',
         'employment_type'       => 'Full Time',
         'work_location'         => 'Siwan district and surrounding zones of Bihar',
         'reporting_manager'     => 'Miss Pooja Pandey (Admission & Marketing Head)',
         'issue_date'            => date('Y-m-d'),
-        'joining_date'          => '2026-08-24',
+        'joining_date'          => date('Y-m-d'),
         'acceptance_deadline'   => date('Y-m-d', strtotime('+7 days')),
         'probation_period'      => '3 Months',
         'working_hours'         => '09:30 AM to 06:30 PM',
-        'monthly_salary'        => 15000.00,
-        'salary_words'          => 'Rupees Fifteen Thousand Only',
+        'monthly_salary'        => '',
+        'salary_words'          => '',
         'target_admissions'     => 8,
         'target_revenue'        => 160000.00,
         'target_revenue_words'  => 'Rupees One Lakh Sixty Thousand Only',
@@ -952,9 +953,6 @@ if ($action === 'create' || $action === 'edit') {
             </h4>
         </div>
         <div class="d-flex flex-wrap gap-2">
-            <button type="button" class="btn btn-outline-info btn-sm" onclick="loadSampleReferenceData()">
-                <i class="fas fa-magic me-1"></i>Load Reference Sample
-            </button>
             <button type="button" class="btn btn-secondary btn-sm" onclick="saveForm(false)">
                 <i class="fas fa-save me-1"></i>Save Draft
             </button>
@@ -1335,7 +1333,19 @@ if ($action === 'create' || $action === 'edit') {
 
     // Auto-fill from Existing Employee
     function autoFillFromEmployee(empId) {
-        if (!empId) return;
+        if (!empId) {
+            document.getElementById('field_employee_id').value = '';
+            document.getElementById('field_candidate_name').value = '';
+            document.getElementById('field_father_name').value = '';
+            document.getElementById('field_email').value = '';
+            document.getElementById('field_mobile').value = '';
+            document.getElementById('field_address').value = '';
+            document.getElementById('field_designation').value = '';
+            document.getElementById('field_monthly_salary').value = '';
+            document.getElementById('field_salary_words').value = '';
+            triggerLivePreview();
+            return;
+        }
         const sel = document.getElementById('employee_picker');
         const opt = sel.options[sel.selectedIndex];
         if (!opt) return;
@@ -1350,31 +1360,10 @@ if ($action === 'create' || $action === 'edit') {
         if (opt.dataset.salary && Number(opt.dataset.salary) > 0) {
             document.getElementById('field_monthly_salary').value = opt.dataset.salary;
             autoCalculateSalaryWords(opt.dataset.salary);
+        } else {
+            document.getElementById('field_monthly_salary').value = '';
+            document.getElementById('field_salary_words').value = '';
         }
-        triggerLivePreview();
-    }
-
-    // Load exact sample data matching reference image
-    function loadSampleReferenceData() {
-        document.getElementById('field_candidate_name').value = "Md. Afroz Ansari";
-        document.getElementById('field_father_name').value = "Md. Shahabuddin Ansari";
-        document.getElementById('field_address').value = "Hindustan Rice Mill At Yergaon Po Pipari Dixit Tah Mul, Yergaon Alias Belgaon, PO Bembal, Dist: Chandrapur, Maharastra";
-        document.getElementById('field_mobile').value = "8262836979";
-        document.getElementById('field_designation').value = "Senior Admission Field Marketing Executive";
-        document.getElementById('field_joining_date').value = "2026-08-24";
-        document.getElementById('field_issue_date').value = "2026-08-24";
-        document.getElementById('field_work_location').value = "Siwan district and surrounding zones of Bihar";
-        document.getElementById('field_reporting_manager').value = "Miss Pooja Pandey (Admission & Marketing Head)";
-        document.getElementById('field_monthly_salary').value = 15000;
-        document.getElementById('field_salary_words').value = "Rupees Fifteen Thousand Only";
-        document.getElementById('field_target_admissions').value = 8;
-        document.getElementById('field_target_revenue').value = 160000;
-        document.getElementById('field_target_revenue_words').value = "Rupees One Lakh Sixty Thousand Only";
-        document.getElementById('field_jurisdiction_court').value = "Siwan, Bihar";
-        document.getElementById('field_signatory_name').value = "Pooja Pandey";
-        document.getElementById('field_signatory_designation').value = "Human Resource & Recruitment Division";
-        document.getElementById('field_show_company_stamp').checked = true;
-        document.getElementById('field_show_signatory_signature').checked = true;
         triggerLivePreview();
     }
 
@@ -1383,18 +1372,19 @@ if ($action === 'create' || $action === 'edit') {
         const spin = document.getElementById('previewSpinIcon');
         if (spin) spin.style.display = 'inline-block';
 
-        const cName = document.getElementById('field_candidate_name').value || 'Candidate Name';
-        const fName = document.getElementById('field_father_name').value || '';
-        const address = document.getElementById('field_address').value || '';
-        const mobile = document.getElementById('field_mobile').value || '';
-        const desig = document.getElementById('field_designation').value || 'SENIOR ADMISSION FIELD MARKETING EXECUTIVE';
+        const cName = (document.getElementById('field_candidate_name').value || '').trim() || '[ Candidate Name ]';
+        const fName = (document.getElementById('field_father_name').value || '').trim();
+        const address = (document.getElementById('field_address').value || '').trim();
+        const mobile = (document.getElementById('field_mobile').value || '').trim();
+        const desig = (document.getElementById('field_designation').value || '').trim() || '[ Designation ]';
         const desigUpper = desig.toUpperCase();
         const mgr = document.getElementById('field_reporting_manager').value || 'Miss Pooja Pandey (Admission & Marketing Head)';
         const mgrShortMatch = mgr.match(/^(Miss|Mr\.|Mrs\.|Dr\.)?\s*([^(\n\r]+)/);
         const mgrShort = mgrShortMatch ? mgrShortMatch[0].trim() : mgr;
         const location = document.getElementById('field_work_location').value || 'Siwan district and surrounding zones of Bihar';
-        const salary = Number(document.getElementById('field_monthly_salary').value || 15000).toLocaleString('en-IN', {minimumFractionDigits: 2});
-        const salaryWords = document.getElementById('field_salary_words').value || inrWords(document.getElementById('field_monthly_salary').value || 15000);
+        const salaryVal = Number(document.getElementById('field_monthly_salary').value || 0);
+        const salary = salaryVal > 0 ? salaryVal.toLocaleString('en-IN', {minimumFractionDigits: 2}) : '0.00';
+        const salaryWords = document.getElementById('field_salary_words').value || (salaryVal > 0 ? inrWords(salaryVal) : '');
         const targetAdm = document.getElementById('field_target_admissions').value || 8;
         const targetRev = Number(document.getElementById('field_target_revenue').value || 160000).toLocaleString('en-IN', {minimumFractionDigits: 2});
         const targetRevWords = document.getElementById('field_target_revenue_words').value || inrWords(document.getElementById('field_target_revenue').value || 160000);
