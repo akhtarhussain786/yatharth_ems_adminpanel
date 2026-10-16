@@ -477,8 +477,8 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
     $court = htmlspecialchars($d['jurisdiction_court'] ?? 'Siwan, Bihar');
     $showStamp = !empty($d['show_company_stamp']);
     $showSig = !empty($d['show_signatory_signature']);
-    $candInitials = strtoupper(substr($cName, 0, 1) . substr(strrchr($cName, ' ') ?: $cName, 1, 1));
-    $candInitialSig = 'D' . strtolower(substr($cName, 0, 4));
+    $candInitials = '';
+    $candInitialSig = '';
 
     // Reusable Header
     $headerHtml = '
@@ -577,7 +577,6 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
 
             <!-- Bottom Stamp & Signature on Page 1 -->
             <div class="d-flex justify-content-end align-items-center gap-4 mt-3">
-                <span class="candidate-init-seal"><?php echo $candInitialSig; ?></span>
                 <?php if ($showStamp): echo $stampHtml; endif; ?>
             </div>
         </div>
@@ -625,7 +624,6 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
 
             <!-- Bottom Stamp & Signature on Page 2 -->
             <div class="d-flex justify-content-end align-items-center gap-4 mt-3">
-                <span class="candidate-init-seal"><?php echo $candInitialSig; ?></span>
                 <?php if ($showStamp): echo $stampHtml; endif; ?>
             </div>
         </div>
@@ -663,7 +661,6 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
 
             <!-- Bottom Stamp & Signature on Page 3 -->
             <div class="d-flex justify-content-end align-items-center gap-4 mt-4">
-                <span class="candidate-init-seal"><?php echo $candInitialSig; ?></span>
                 <?php if ($showStamp): echo $stampHtml; endif; ?>
             </div>
         </div>
@@ -705,7 +702,6 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
 
             <!-- Bottom Stamp & Signature on Page 4 -->
             <div class="d-flex justify-content-end align-items-center gap-4 mt-3">
-                <span class="candidate-init-seal"><?php echo $candInitialSig; ?></span>
                 <?php if ($showStamp): echo $stampHtml; endif; ?>
             </div>
         </div>
@@ -741,11 +737,10 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
             <!-- Signature & Acceptance Sign-off Section -->
             <div class="row align-items-end mt-4">
                 <div class="col-6">
-                    <div class="mb-2">
-                        <span class="fw-bold">Full Signature of the Employee:</span>
-                        <span class="ms-2 candidate-init-seal" style="font-size: 22px;"><?php echo $candInitialSig; ?></span>
+                    <div class="mb-3">
+                        <span class="fw-bold d-block mb-4">Full Signature of the Employee:</span>
+                        <div class="border-bottom border-dark" style="width: 250px;"></div>
                     </div>
-                    <div class="border-bottom border-dark my-1" style="width: 250px;"></div>
                     <div class="mt-2"><span class="fw-bold">Name of the Employee:</span> <?php echo $cName; ?></div>
 
                     <div class="mt-3">
@@ -1418,7 +1413,7 @@ if ($action === 'create' || $action === 'edit') {
             issueFormatted = dd + '/' + mm + '/' + isd.getFullYear();
         } catch(e) {}
 
-        const candInitialSig = 'D' + cName.replace(/[^a-zA-Z]/g, '').slice(0, 4).toLowerCase();
+        const candInitialSig = '';
 
         // Update elements across the preview DOM
         document.querySelectorAll('.doc-main-title').forEach(el => el.innerText = docTitle);
@@ -1537,7 +1532,6 @@ if ($action === 'create' || $action === 'edit') {
                     </p>
 
                     <div class="d-flex justify-content-end align-items-center gap-4 mt-3">
-                        <span class="candidate-init-seal">${p.candInitialSig}</span>
                         ${stampMarkup}
                     </div>
                 </div>
@@ -1583,7 +1577,6 @@ if ($action === 'create' || $action === 'edit') {
                     </ul>
 
                     <div class="d-flex justify-content-end align-items-center gap-4 mt-3">
-                        <span class="candidate-init-seal">${p.candInitialSig}</span>
                         ${stampMarkup}
                     </div>
                 </div>
@@ -1618,7 +1611,6 @@ if ($action === 'create' || $action === 'edit') {
                     </ul>
 
                     <div class="d-flex justify-content-end align-items-center gap-4 mt-4">
-                        <span class="candidate-init-seal">${p.candInitialSig}</span>
                         ${stampMarkup}
                     </div>
                 </div>
@@ -1658,7 +1650,6 @@ if ($action === 'create' || $action === 'edit') {
                     </ul>
 
                     <div class="d-flex justify-content-end align-items-center gap-4 mt-3">
-                        <span class="candidate-init-seal">${p.candInitialSig}</span>
                         ${stampMarkup}
                     </div>
                 </div>
@@ -1693,11 +1684,10 @@ if ($action === 'create' || $action === 'edit') {
 
                     <div class="row align-items-end mt-4">
                         <div class="col-6">
-                            <div class="mb-2">
-                                <span class="fw-bold">Full Signature of the Employee:</span>
-                                <span class="ms-2 candidate-init-seal" style="font-size: 22px;">${p.candInitialSig}</span>
+                            <div class="mb-3">
+                                <span class="fw-bold d-block mb-4">Full Signature of the Employee:</span>
+                                <div class="border-bottom border-dark" style="width: 250px;"></div>
                             </div>
-                            <div class="border-bottom border-dark my-1" style="width: 250px;"></div>
                             <div class="mt-2"><span class="fw-bold">Name of the Employee:</span> ${p.cName}</div>
 
                             <div class="mt-3">
