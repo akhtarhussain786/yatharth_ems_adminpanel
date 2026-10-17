@@ -426,7 +426,23 @@ if ($action === 'print' && $currentId > 0) {
         <link href="<?php echo BASE_URL; ?>css/style.css?v=<?php echo @filemtime(__DIR__ . '/../css/style.css') ?: '1'; ?>" rel="stylesheet">
         <style>
             body { background: #ffffff !important; margin: 0; padding: 0; }
-            .a4-page-sheet { box-shadow: none !important; margin: 0 auto !important; }
+            .a4-page-sheet {
+                box-shadow: none !important;
+                margin: 0 auto !important;
+                width: 210mm !important;
+                height: 297mm !important;
+                max-height: 297mm !important;
+                page-break-after: always !important;
+                page-break-inside: avoid !important;
+                overflow: hidden !important;
+            }
+            .a4-page-sheet:last-child {
+                page-break-after: avoid !important;
+            }
+            @page {
+                size: A4 portrait;
+                margin: 0;
+            }
         </style>
     </head>
     <body onload="window.print()">
@@ -503,8 +519,8 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
 
     // Reusable SVG Rubber Stamp
     $stampHtml = '
-    <div class="official-stamp-seal" style="width:125px;height:125px;">
-        <svg viewBox="0 0 160 160" width="125" height="125" style="transform: rotate(-6deg);">
+    <div class="official-stamp-seal">
+        <svg viewBox="0 0 160 160" style="transform: rotate(-6deg);">
             <circle cx="80" cy="80" r="76" fill="none" stroke="#1d4ed8" stroke-width="2.5" opacity="0.88"/>
             <circle cx="80" cy="80" r="71" fill="none" stroke="#1d4ed8" stroke-width="1.1" opacity="0.88"/>
             <circle cx="80" cy="80" r="49" fill="none" stroke="#1d4ed8" stroke-width="0.9" opacity="0.75"/>
@@ -532,14 +548,14 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
         <div class="a4-page-body">
             <div class="doc-main-title"><?php echo $docTitle; ?></div>
 
-            <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom" style="font-size: 10pt; font-family: 'Inter', sans-serif;">
+            <div class="d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom" style="font-size: 9.5pt; font-family: 'Inter', sans-serif;">
                 <div><strong>Ref. / Offer Letter No.:</strong> <span class="fw-bold text-primary doc-ref-no-val"><?php echo $offerLetterNo; ?></span></div>
                 <div><strong>Date of Issue:</strong> <span><?php echo $issueDate; ?></span></div>
             </div>
 
-            <div class="mb-3" style="font-size: 10pt; line-height: 1.45;">
+            <div class="mb-2" style="font-size: 9.5pt; line-height: 1.4;">
                 <div>To,</div>
-                <div class="fw-bold" style="font-size: 11pt;"><?php echo $cName; ?></div>
+                <div class="fw-bold" style="font-size: 10.5pt;"><?php echo $cName; ?></div>
                 <?php if ($fName): ?>
                 <div><span class="fw-bold">S/o:</span> <?php echo $fName; ?></div>
                 <?php endif; ?>
@@ -552,7 +568,7 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
                 <div><span class="fw-bold">Joining Date:</span> <?php echo $joiningDate; ?></div>
             </div>
 
-            <div class="fw-bold mb-3" style="font-size: 10.5pt; text-transform: uppercase;">
+            <div class="fw-bold mb-2" style="font-size: 10pt; text-transform: uppercase;">
                 SUBJECT: APPOINTMENT LETTER FOR THE POSITION OF "<?php echo $designationUpper; ?>"
             </div>
 
@@ -583,7 +599,7 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
             </p>
 
             <!-- Bottom Stamp & Signature on Page 1 -->
-            <div class="d-flex justify-content-end align-items-center gap-4 mt-3">
+            <div class="d-flex justify-content-end align-items-center gap-4 mt-2">
                 <?php if ($showStamp): echo $stampHtml; endif; ?>
             </div>
         </div>
@@ -596,7 +612,7 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
     <div class="a4-page-sheet" id="page-sheet-2">
         <?php echo $headerHtml; ?>
         <div class="a4-page-body">
-            <ul class="list-unstyled ps-2 mb-3">
+            <ul class="list-unstyled ps-2 mb-2">
                 <li>• <strong>Extensive Rural &amp; Ground Penetration:</strong> Conducting rigorous door-to-door and village-to-village visits in rural areas (including Siwan, Barharia and entire assigned blocks) to identify prospective students for Paramedical, Fire Safety, IT, and other vocational courses offered by the Institution.</li>
                 <li>• <strong>Canopy &amp; BTL Activity Execution:</strong> Erecting promotional canopies, stalls, and institutional helpdesks in prominent village squares, local markets (Haat-Bazaars), and near educational institutions to harvest high-quality student leads.</li>
                 <li>• <strong>Career Counselling Seminars:</strong> Planning, organizing, and executing independent career counselling seminars, presentations, and workshops in local high schools, intermediate colleges, and private coaching centres.</li>
@@ -606,7 +622,7 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
             <div class="doc-section-title">REMUNERATION STRUCTURE, GRACE PERIOD &amp; SALARY DEDUCTION / HOLD POLICY</div>
 
             <div class="doc-sub-heading">4. REMUNERATION &amp; COMPENSATION PACKAGE</div>
-            <ul class="list-unstyled ps-2 mb-3">
+            <ul class="list-unstyled ps-2 mb-2">
                 <li>• Your Fixed Gross Monthly Salary is structured at <strong>INR <?php echo $salary; ?>/- (<?php echo $salaryWords; ?>)</strong>.</li>
                 <li>• This salary is inclusive of basic salary, house rent allowance, and basic field allowances. Statutory deductions such as TDS or Professional Tax (if applicable) will be deducted at source.</li>
                 <li>• Any additional fuel/conveyance allowance or performance incentives will be governed strictly by the written institutional dynamic incentive policy issued at the start of the admission cycle.</li>
@@ -631,7 +647,7 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
             </ul>
 
             <!-- Bottom Stamp & Signature on Page 2 -->
-            <div class="d-flex justify-content-end align-items-center gap-4 mt-3">
+            <div class="d-flex justify-content-end align-items-center gap-4 mt-2">
                 <?php if ($showStamp): echo $stampHtml; endif; ?>
             </div>
         </div>
@@ -647,14 +663,14 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
             <div class="doc-section-title">FIELD MONITORING, DAILY REPORTING STANDARDS &amp; NORMS</div>
 
             <div class="doc-sub-heading">6. REAL-TIME FIELD MONITORING &amp; REPORTING MANDATES</div>
-            <ul class="list-unstyled ps-2 mb-3">
+            <ul class="list-unstyled ps-2 mb-2">
                 <li>• <strong>Daily Attendance &amp; GPS Tracking:</strong> You are required to log your attendance through the official Employee App or via real-time GPS location sharing directly with <strong><?php echo $mgrShort; ?></strong> at the start and end of your field shift.</li>
                 <li>• <strong>Geotagged Proofs:</strong> For every canopy activity, seminar, or poster-pasting drive, you must upload high-resolution, time-stamped, and geotagged photographs to the reporting portal and verify it over text/call with <strong><?php echo $mgrShort; ?></strong>. Failure to do so will result in that day being marked as <strong>"Absent/Loss of Pay (LOP)"</strong>.</li>
                 <li>• <strong>Daily Activity Report (DAR) Submission:</strong> You must submit a digital or physical copy of the Daily Activity Report containing the names, verified mobile numbers, streams, and parental data of a minimum of 10 prospective students counseled daily. This report must be checked and signed off by <strong><?php echo $mgrShort; ?></strong> every single evening.</li>
             </ul>
 
             <div class="doc-section-title">7. INSTITUTIONAL CODE OF CONDUCT &amp; DISCIPLINE</div>
-            <ul class="list-unstyled ps-2 mb-3">
+            <ul class="list-unstyled ps-2 mb-2">
                 <li>• <strong>Professional Representation:</strong> You shall maintain the highest level of integrity and professional decorum. You are prohibited from making false promises, fake fee commitments, or unauthorized scholarship guarantees to students or parents.</li>
                 <li>• <strong>Anti-Poaching &amp; Direct Collection Prohibition:</strong> You are strictly forbidden from collecting any cash, online application fees, or tokens directly from students into your personal bank account. All financial transactions must be routed through the official bank account/counters of <strong><?php echo $compName; ?></strong>. Any violation will be treated as a criminal breach of trust.</li>
                 <li>• <strong>Absconding Policy:</strong> Remaining absent from the assigned field territory or failing to report your daily activity to <strong><?php echo $mgrShort; ?></strong> for three (3) consecutive days without prior written approval will automatically classify you as "Absconded from Duty," leading to immediate termination and freezing of accounts.</li>
@@ -669,7 +685,7 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
             </ul>
 
             <!-- Bottom Stamp & Signature on Page 3 -->
-            <div class="d-flex justify-content-end align-items-center gap-4 mt-4">
+            <div class="d-flex justify-content-end align-items-center gap-4 mt-2">
                 <?php if ($showStamp): echo $stampHtml; endif; ?>
             </div>
         </div>
@@ -682,12 +698,12 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
     <div class="a4-page-sheet" id="page-sheet-4">
         <?php echo $headerHtml; ?>
         <div class="a4-page-body">
-            <ul class="list-unstyled ps-2 mb-3">
+            <ul class="list-unstyled ps-2 mb-2">
                 <li>• You shall not, during or after your employment, disclose, duplicate, transfer, or sell this database to any competitor educational group, coaching institute, or third-party marketing agency. Breach of this clause will invoke an immediate financial liability of <strong>INR <?php echo $liquidatedDamages; ?>/-</strong> payable by you to the institution as liquidated damages.</li>
             </ul>
 
             <div class="doc-section-title">9. ANTI-BARGAINING &amp; EMPLOYEE WAIVER CLAUSE (LEGAL PROTECTION)</div>
-            <ul class="list-unstyled ps-2 mb-3">
+            <ul class="list-unstyled ps-2 mb-2">
                 <li>• <strong>Waiver of Claims:</strong> <?php echo $cName; ?> explicitly agrees, confirms, and signs that he has completely read, understood, and consented to the performance-salary linkage clause outlined in Section 5.</li>
                 <li>• <strong>Estoppel:</strong> The employee agrees that if their employment is terminated or their salary is held/deducted due to non-achievement of targets as reported by <strong><?php echo $mgrShort; ?></strong> from the second month onwards, they are legally estopped (barred) from claiming any compensation, moving to labor courts for full salary recovery, or staging any protest against the management.</li>
                 <li>• The employee accepts that this contract represents a strictly professional commercial-marketing alliance where compensation is balanced against actual field conversion.</li>
@@ -711,7 +727,7 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
             </ul>
 
             <!-- Bottom Stamp & Signature on Page 4 -->
-            <div class="d-flex justify-content-end align-items-center gap-4 mt-3">
+            <div class="d-flex justify-content-end align-items-center gap-4 mt-2">
                 <?php if ($showStamp): echo $stampHtml; endif; ?>
             </div>
         </div>
@@ -724,7 +740,7 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
     <div class="a4-page-sheet" id="page-sheet-5">
         <?php echo $headerHtml; ?>
         <div class="a4-page-body">
-            <ul class="list-unstyled ps-2 mb-3">
+            <ul class="list-unstyled ps-2 mb-2">
                 <li>• <strong>Termination for Cause:</strong> The Management can terminate your services with Immediate Effect, forfeiting all pending balances, if you are found guilty of:
                     <ul class="list-unstyled ps-3 mt-1 mb-1" style="list-style-type: circle;">
                         <li>o Financial fraud, embezzlement, or taking bribes from agents/students.</li>
@@ -736,25 +752,25 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
             </ul>
 
             <div class="doc-section-title">13. GOVERNING LAW &amp; EXCLUSIVE JURISDICTION</div>
-            <p class="mb-3">
+            <p class="mb-2">
                 This appointment contract shall be governed, interpreted, and enforced strictly in accordance with the statutory laws of the Republic of India. In the event of any irreconcilable legal dispute, litigation, class-action, or claim arising out of this contract, the exclusive territorial jurisdiction shall lie solely within the competent civil courts of <strong><?php echo $court; ?></strong>. No court outside the territorial limits of <?php echo $court; ?> shall have authority to entertain any application or suit filed by either party.
             </p>
 
             <div class="doc-section-title">DECLARATION &amp; UNCONDITIONAL ACCEPTANCE</div>
-            <p class="mb-4">
+            <p class="mb-2">
                 I, <strong><?php echo $cName; ?></strong>, <?php echo $fName ? 'S/o Mr. <strong>' . $fName . '</strong>, ' : ''; ?>resident of <strong><?php echo $address ?: $location; ?></strong>, do hereby solemnly declare that I have read this entire 5-page Appointment Letter (or it has been read out and explained to me in my native language). I completely understand my reporting line under <strong><?php echo $mgrShort; ?></strong>, all the rigid norms, daily field duties, and the target-salary deduction rules. I accept this appointment unconditionally and pledge to abide by all the clauses with absolute loyalty and discipline.
             </p>
 
             <!-- Signature & Acceptance Sign-off Section -->
-            <div class="row align-items-end mt-4">
+            <div class="row align-items-end mt-2">
                 <div class="col-6">
-                    <div class="mb-3">
-                        <span class="fw-bold d-block mb-4">Full Signature of the Employee:</span>
+                    <div class="mb-2">
+                        <span class="fw-bold d-block mb-3">Full Signature of the Employee:</span>
                         <div class="border-bottom border-dark" style="width: 250px;"></div>
                     </div>
-                    <div class="mt-2"><span class="fw-bold">Name of the Employee:</span> <?php echo $cName; ?></div>
+                    <div class="mt-1"><span class="fw-bold">Name of the Employee:</span> <?php echo $cName; ?></div>
 
-                    <div class="mt-3">
+                    <div class="mt-2">
                         <span class="fw-bold d-block mb-1">Thumb Impression:</span>
                         <div class="thumb-impression-box">
                             <i class="fas fa-fingerprint fa-2x mb-1 text-secondary opacity-75"></i>
@@ -762,7 +778,7 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
                         </div>
                     </div>
 
-                    <div class="d-flex gap-4 mt-3 small fw-bold">
+                    <div class="d-flex gap-4 mt-2 small fw-bold">
                         <div>Date: <?php echo $issueDate; ?></div>
                         <div>Place: <?php echo $court; ?></div>
                     </div>
@@ -770,13 +786,13 @@ function renderAppointmentLetterPages($d, $emblemBase64, $isInteractive = true) 
 
                 <div class="col-6 text-end">
                     <div class="small fw-bold">For &amp; On Behalf of the Management,</div>
-                    <div class="fw-bold text-uppercase mt-1 mb-2" style="font-size: 11pt;"><?php echo $compNameUpper; ?></div>
+                    <div class="fw-bold text-uppercase mt-1 mb-1" style="font-size: 10.5pt;"><?php echo $compNameUpper; ?></div>
 
-                    <div class="d-flex justify-content-end align-items-center gap-3 my-2">
+                    <div class="d-flex justify-content-end align-items-center gap-3 my-1">
                         <?php if ($showStamp): echo $stampHtml; endif; ?>
                     </div>
 
-                    <div class="fw-bold" style="font-size: 11pt;"><?php echo $sigName; ?></div>
+                    <div class="fw-bold" style="font-size: 10.5pt;"><?php echo $sigName; ?></div>
                     <div class="fw-semibold small"><?php echo $compName; ?></div>
                     <div class="text-muted small"><?php echo $sigDesig; ?></div>
                 </div>
@@ -859,20 +875,93 @@ if ($action === 'view') {
         </div>
     </div>
 
+    <script src="<?php echo BASE_URL; ?>js/html2canvas.min.js"></script>
+    <script src="<?php echo BASE_URL; ?>js/jspdf.umd.min.js"></script>
     <script src="<?php echo BASE_URL; ?>js/html2pdf.bundle.min.js"></script>
     <script>
-    function downloadPdfNow(num) {
+    async function exportOfferLetterToPdf(containerElement, filename, statusCallback) {
+        if (typeof statusCallback === 'function') statusCallback('Preparing PDF...');
+
+        if (!containerElement) {
+            alert('Document container element not found.');
+            if (typeof statusCallback === 'function') statusCallback('Ready');
+            return;
+        }
+
+        const sheets = containerElement.querySelectorAll('.a4-page-sheet');
+        if (!sheets.length) {
+            alert('No document pages found to export.');
+            if (typeof statusCallback === 'function') statusCallback('Ready');
+            return;
+        }
+
+        const zoomContainer = containerElement.closest('.offer-preview-zoom-container') || containerElement.parentElement;
+        const prevTransform = zoomContainer && zoomContainer.style ? zoomContainer.style.transform : '';
+        if (zoomContainer && zoomContainer.style) {
+            zoomContainer.style.transform = 'none';
+        }
+
+        try {
+            const JsPdfClass = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : (window.jsPDF || null);
+            if (!JsPdfClass || typeof html2canvas === 'undefined') {
+                throw new Error('PDF generation libraries are loading or unavailable. Please reload the page.');
+            }
+
+            const pdf = new JsPdfClass({
+                unit: 'mm',
+                format: 'a4',
+                orientation: 'portrait',
+                compress: true
+            });
+
+            for (let i = 0; i < sheets.length; i++) {
+                if (typeof statusCallback === 'function') {
+                    statusCallback(`Exporting page ${i + 1} of ${sheets.length}...`);
+                }
+                const sheet = sheets[i];
+
+                const prevShadow = sheet.style.boxShadow;
+                const prevMargin = sheet.style.margin;
+                sheet.style.boxShadow = 'none';
+                sheet.style.margin = '0 auto';
+
+                const canvas = await html2canvas(sheet, {
+                    scale: 2,
+                    useCORS: true,
+                    logging: false,
+                    allowTaint: true,
+                    backgroundColor: '#ffffff'
+                });
+
+                sheet.style.boxShadow = prevShadow;
+                sheet.style.margin = prevMargin;
+
+                const imgData = canvas.toDataURL('image/jpeg', 0.96);
+                if (i > 0) {
+                    pdf.addPage('a4', 'portrait');
+                }
+                pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+            }
+
+            if (typeof statusCallback === 'function') statusCallback('Saving PDF...');
+            pdf.save(filename);
+
+            if (typeof statusCallback === 'function') statusCallback('Downloaded!');
+        } catch (err) {
+            console.error('PDF export error:', err);
+            alert('Failed to generate PDF: ' + (err.message || 'Unknown error'));
+            if (typeof statusCallback === 'function') statusCallback('Error');
+        } finally {
+            if (zoomContainer && zoomContainer.style) {
+                zoomContainer.style.transform = prevTransform;
+            }
+        }
+    }
+
+    async function downloadPdfNow(num) {
         const element = document.getElementById('printableOfferDoc');
         const filename = 'Appointment_Letter_' + (num || 'Document').replace(/[\/\\?%*:|"<>]/g, '_') + '.pdf';
-        const opt = {
-            margin:       [0, 0, 0, 0],
-            filename:     filename,
-            image:        { type: 'jpeg', quality: 0.98 },
-            html2canvas:  { scale: 2, useCORS: true, logging: false },
-            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-            pagebreak:    { mode: ['css', 'legacy'] }
-        };
-        html2pdf().set(opt).from(element).save();
+        await exportOfferLetterToPdf(element, filename);
     }
     </script>
     <?php
@@ -1263,6 +1352,8 @@ if ($action === 'create' || $action === 'edit') {
     </div>
 
     <!-- Scripts for Live Preview, Auto-Fill and PDF Generator -->
+    <script src="<?php echo BASE_URL; ?>js/html2canvas.min.js"></script>
+    <script src="<?php echo BASE_URL; ?>js/jspdf.umd.min.js"></script>
     <script src="<?php echo BASE_URL; ?>js/html2pdf.bundle.min.js"></script>
     <script>
     let currentZoom = 0.85;
@@ -1453,8 +1544,8 @@ if ($action === 'create' || $action === 'edit') {
 
     function generateAppointmentPagesMarkup(p) {
         const stampMarkup = p.showStamp ? `
-            <div class="official-stamp-seal" style="width:125px;height:125px;">
-                <svg viewBox="0 0 160 160" width="125" height="125" style="transform: rotate(-6deg);">
+            <div class="official-stamp-seal">
+                <svg viewBox="0 0 160 160" style="transform: rotate(-6deg);">
                     <circle cx="80" cy="80" r="76" fill="none" stroke="#1d4ed8" stroke-width="2.5" opacity="0.88"/>
                     <circle cx="80" cy="80" r="71" fill="none" stroke="#1d4ed8" stroke-width="1.1" opacity="0.88"/>
                     <circle cx="80" cy="80" r="49" fill="none" stroke="#1d4ed8" stroke-width="0.9" opacity="0.75"/>
@@ -1499,20 +1590,20 @@ if ($action === 'create' || $action === 'edit') {
                 <div class="a4-page-body">
                     <div class="doc-main-title">${p.docTitle}</div>
 
-                    <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom" style="font-size: 10pt; font-family: 'Inter', sans-serif;">
+                    <div class="d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom" style="font-size: 9.5pt; font-family: 'Inter', sans-serif;">
                         <div><strong>Ref. / Offer Letter No.:</strong> <span class="fw-bold text-primary doc-ref-no-val">${p.offerLetterNo}</span></div>
                         <div><strong>Date of Issue:</strong> <span>${p.issueFormatted}</span></div>
                     </div>
-                    <div class="mb-3" style="font-size: 10pt; line-height: 1.45;">
+                    <div class="mb-2" style="font-size: 9.5pt; line-height: 1.4;">
                         <div>To,</div>
-                        <div class="fw-bold" style="font-size: 11pt;">${p.cName}</div>
+                        <div class="fw-bold" style="font-size: 10.5pt;">${p.cName}</div>
                         ${p.fName ? `<div><span class="fw-bold">S/o:</span> ${p.fName}</div>` : ''}
                         ${p.address ? `<div><span class="fw-bold">Permanent Address:</span> ${p.address}</div>` : ''}
                         ${p.mobile ? `<div><span class="fw-bold">Contact Number:</span> ${p.mobile}</div>` : ''}
                         <div><span class="fw-bold">Joining Date:</span> ${p.joiningFormatted}</div>
                     </div>
 
-                    <div class="fw-bold mb-3" style="font-size: 10.5pt; text-transform: uppercase;">
+                    <div class="fw-bold mb-2" style="font-size: 10pt; text-transform: uppercase;">
                         SUBJECT: APPOINTMENT LETTER FOR THE POSITION OF "${p.desigUpper}"
                     </div>
 
@@ -1541,7 +1632,7 @@ if ($action === 'create' || $action === 'edit') {
                         Your profile is <strong>100% field-based physical marketing</strong>. You are required to actively operate in rural, semi-urban, and urban territories, with a primary focus on the ${p.location}, or any other region assigned by <strong>${p.mgrShort}</strong>. Your daily responsibilities include:
                     </p>
 
-                    <div class="d-flex justify-content-end align-items-center gap-4 mt-3">
+                    <div class="d-flex justify-content-end align-items-center gap-4 mt-2">
                         ${stampMarkup}
                     </div>
                 </div>
@@ -1554,7 +1645,7 @@ if ($action === 'create' || $action === 'edit') {
             <div class="a4-page-sheet" id="page-sheet-2">
                 ${headerMarkup}
                 <div class="a4-page-body">
-                    <ul class="list-unstyled ps-2 mb-3">
+                    <ul class="list-unstyled ps-2 mb-2">
                         <li>• <strong>Extensive Rural &amp; Ground Penetration:</strong> Conducting rigorous door-to-door and village-to-village visits in rural areas (including Siwan, Barharia and entire assigned blocks) to identify prospective students for Paramedical, Fire Safety, IT, and other vocational courses offered by the Institution.</li>
                         <li>• <strong>Canopy &amp; BTL Activity Execution:</strong> Erecting promotional canopies, stalls, and institutional helpdesks in prominent village squares, local markets (Haat-Bazaars), and near educational institutions to harvest high-quality student leads.</li>
                         <li>• <strong>Career Counselling Seminars:</strong> Planning, organizing, and executing independent career counselling seminars, presentations, and workshops in local high schools, intermediate colleges, and private coaching centres.</li>
@@ -1563,7 +1654,7 @@ if ($action === 'create' || $action === 'edit') {
 
                     <div class="doc-section-title">REMUNERATION STRUCTURE, GRACE PERIOD &amp; SALARY DEDUCTION / HOLD POLICY</div>
                     <div class="doc-sub-heading">4. REMUNERATION &amp; COMPENSATION PACKAGE</div>
-                    <ul class="list-unstyled ps-2 mb-3">
+                    <ul class="list-unstyled ps-2 mb-2">
                         <li>• Your Fixed Gross Monthly Salary is structured at <strong>INR ${p.salary}/- (${p.salaryWords})</strong>.</li>
                         <li>• This salary is inclusive of basic salary, house rent allowance, and basic field allowances. Statutory deductions such as TDS or Professional Tax (if applicable) will be deducted at source.</li>
                         <li>• Any additional fuel/conveyance allowance or performance incentives will be governed strictly by the written institutional dynamic incentive policy issued at the start of the admission cycle.</li>
@@ -1587,7 +1678,7 @@ if ($action === 'create' || $action === 'edit') {
                         <li>• The employee hereby waives any right to legally dispute or object to such salary hold or deduction, acknowledging that the institution cannot sustain non-performing operational expenses.</li>
                     </ul>
 
-                    <div class="d-flex justify-content-end align-items-center gap-4 mt-3">
+                    <div class="d-flex justify-content-end align-items-center gap-4 mt-2">
                         ${stampMarkup}
                     </div>
                 </div>
@@ -1602,14 +1693,14 @@ if ($action === 'create' || $action === 'edit') {
                 <div class="a4-page-body">
                     <div class="doc-section-title">FIELD MONITORING, DAILY REPORTING STANDARDS &amp; NORMS</div>
                     <div class="doc-sub-heading">6. REAL-TIME FIELD MONITORING &amp; REPORTING MANDATES</div>
-                    <ul class="list-unstyled ps-2 mb-3">
+                    <ul class="list-unstyled ps-2 mb-2">
                         <li>• <strong>Daily Attendance &amp; GPS Tracking:</strong> You are required to log your attendance through the official Employee App or via real-time GPS location sharing directly with <strong>${p.mgrShort}</strong> at the start and end of your field shift.</li>
                         <li>• <strong>Geotagged Proofs:</strong> For every canopy activity, seminar, or poster-pasting drive, you must upload high-resolution, time-stamped, and geotagged photographs to the reporting portal and verify it over text/call with <strong>${p.mgrShort}</strong>. Failure to do so will result in that day being marked as <strong>"Absent/Loss of Pay (LOP)"</strong>.</li>
                         <li>• <strong>Daily Activity Report (DAR) Submission:</strong> You must submit a digital or physical copy of the Daily Activity Report containing the names, verified mobile numbers, streams, and parental data of a minimum of 10 prospective students counseled daily. This report must be checked and signed off by <strong>${p.mgrShort}</strong> every single evening.</li>
                     </ul>
 
                     <div class="doc-section-title">7. INSTITUTIONAL CODE OF CONDUCT &amp; DISCIPLINE</div>
-                    <ul class="list-unstyled ps-2 mb-3">
+                    <ul class="list-unstyled ps-2 mb-2">
                         <li>• <strong>Professional Representation:</strong> You shall maintain the highest level of integrity and professional decorum. You are prohibited from making false promises, fake fee commitments, or unauthorized scholarship guarantees to students or parents.</li>
                         <li>• <strong>Anti-Poaching &amp; Direct Collection Prohibition:</strong> You are strictly forbidden from collecting any cash, online application fees, or tokens directly from students into your personal bank account. All financial transactions must be routed through the official bank account/counters of <strong>Yatharth Group of Institution</strong>. Any violation will be treated as a criminal breach of trust.</li>
                         <li>• <strong>Absconding Policy:</strong> Remaining absent from the assigned field territory or failing to report your daily activity to <strong>${p.mgrShort}</strong> for three (3) consecutive days without prior written approval will automatically classify you as "Absconded from Duty," leading to immediate termination and freezing of accounts.</li>
@@ -1622,7 +1713,7 @@ if ($action === 'create' || $action === 'edit') {
                         <li>• You explicitly agree that all such information is the exclusive intellectual and commercial property of <strong>Yatharth Group of Institution</strong>.</li>
                     </ul>
 
-                    <div class="d-flex justify-content-end align-items-center gap-4 mt-4">
+                    <div class="d-flex justify-content-end align-items-center gap-4 mt-2">
                         ${stampMarkup}
                     </div>
                 </div>
@@ -1635,12 +1726,12 @@ if ($action === 'create' || $action === 'edit') {
             <div class="a4-page-sheet" id="page-sheet-4">
                 ${headerMarkup}
                 <div class="a4-page-body">
-                    <ul class="list-unstyled ps-2 mb-3">
+                    <ul class="list-unstyled ps-2 mb-2">
                         <li>• You shall not, during or after your employment, disclose, duplicate, transfer, or sell this database to any competitor educational group, coaching institute, or third-party marketing agency. Breach of this clause will invoke an immediate financial liability of <strong>INR 5,00,000.00/-</strong> payable by you to the institution as liquidated damages.</li>
                     </ul>
 
                     <div class="doc-section-title">9. ANTI-BARGAINING &amp; EMPLOYEE WAIVER CLAUSE (LEGAL PROTECTION)</div>
-                    <ul class="list-unstyled ps-2 mb-3">
+                    <ul class="list-unstyled ps-2 mb-2">
                         <li>• <strong>Waiver of Claims:</strong> ${p.cName} explicitly agrees, confirms, and signs that he has completely read, understood, and consented to the performance-salary linkage clause outlined in Section 5.</li>
                         <li>• <strong>Estoppel:</strong> The employee agrees that if their employment is terminated or their salary is held/deducted due to non-achievement of targets as reported by <strong>${p.mgrShort}</strong> from the second month onwards, they are legally estopped (barred) from claiming any compensation, moving to labor courts for full salary recovery, or staging any protest against the management.</li>
                         <li>• The employee accepts that this contract represents a strictly professional commercial-marketing alliance where compensation is balanced against actual field conversion.</li>
@@ -1662,7 +1753,7 @@ if ($action === 'create' || $action === 'edit') {
                         <li>• <strong>During Probationary Period:</strong> The Management, upon the official performance evaluation report of <strong>${p.mgrShort}</strong>, reserves the absolute right to terminate your employment at any moment without any prior notice, notice period, or assignment of reasons, if your field performance is found zero or unsatisfactory.</li>
                     </ul>
 
-                    <div class="d-flex justify-content-end align-items-center gap-4 mt-3">
+                    <div class="d-flex justify-content-end align-items-center gap-4 mt-2">
                         ${stampMarkup}
                     </div>
                 </div>
@@ -1675,7 +1766,7 @@ if ($action === 'create' || $action === 'edit') {
             <div class="a4-page-sheet" id="page-sheet-5">
                 ${headerMarkup}
                 <div class="a4-page-body">
-                    <ul class="list-unstyled ps-2 mb-3">
+                    <ul class="list-unstyled ps-2 mb-2">
                         <li>• <strong>Termination for Cause:</strong> The Management can terminate your services with Immediate Effect, forfeiting all pending balances, if you are found guilty of:
                             <ul class="list-unstyled ps-3 mt-1 mb-1" style="list-style-type: circle;">
                                 <li>o Financial fraud, embezzlement, or taking bribes from agents/students.</li>
@@ -1687,24 +1778,24 @@ if ($action === 'create' || $action === 'edit') {
                     </ul>
 
                     <div class="doc-section-title">13. GOVERNING LAW &amp; EXCLUSIVE JURISDICTION</div>
-                    <p class="mb-3">
+                    <p class="mb-2">
                         This appointment contract shall be governed, interpreted, and enforced strictly in accordance with the statutory laws of the Republic of India. In the event of any irreconcilable legal dispute, litigation, class-action, or claim arising out of this contract, the exclusive territorial jurisdiction shall lie solely within the competent civil courts of <strong>${p.court}</strong>. No court outside the territorial limits of ${p.court} shall have authority to entertain any application or suit filed by either party.
                     </p>
 
                     <div class="doc-section-title">DECLARATION &amp; UNCONDITIONAL ACCEPTANCE</div>
-                    <p class="mb-4">
+                    <p class="mb-2">
                         I, <strong>${p.cName}</strong>, ${p.fName ? 'S/o Mr. <strong>' + p.fName + '</strong>, ' : ''}resident of <strong>${p.address || p.location}</strong>, do hereby solemnly declare that I have read this entire 5-page Appointment Letter (or it has been read out and explained to me in my native language). I completely understand my reporting line under <strong>${p.mgrShort}</strong>, all the rigid norms, daily field duties, and the target-salary deduction rules. I accept this appointment unconditionally and pledge to abide by all the clauses with absolute loyalty and discipline.
                     </p>
 
-                    <div class="row align-items-end mt-4">
+                    <div class="row align-items-end mt-2">
                         <div class="col-6">
-                            <div class="mb-3">
-                                <span class="fw-bold d-block mb-4">Full Signature of the Employee:</span>
+                            <div class="mb-2">
+                                <span class="fw-bold d-block mb-3">Full Signature of the Employee:</span>
                                 <div class="border-bottom border-dark" style="width: 250px;"></div>
                             </div>
-                            <div class="mt-2"><span class="fw-bold">Name of the Employee:</span> ${p.cName}</div>
+                            <div class="mt-1"><span class="fw-bold">Name of the Employee:</span> ${p.cName}</div>
 
-                            <div class="mt-3">
+                            <div class="mt-2">
                                 <span class="fw-bold d-block mb-1">Thumb Impression:</span>
                                 <div class="thumb-impression-box">
                                     <i class="fas fa-fingerprint fa-2x mb-1 text-secondary opacity-75"></i>
@@ -1712,7 +1803,7 @@ if ($action === 'create' || $action === 'edit') {
                                 </div>
                             </div>
 
-                            <div class="d-flex gap-4 mt-3 small fw-bold">
+                            <div class="d-flex gap-4 mt-2 small fw-bold">
                                 <div>Date: ${p.issueFormatted}</div>
                                 <div>Place: ${p.court}</div>
                             </div>
@@ -1720,13 +1811,13 @@ if ($action === 'create' || $action === 'edit') {
 
                         <div class="col-6 text-end">
                             <div class="small fw-bold">For &amp; On Behalf of the Management,</div>
-                            <div class="fw-bold text-uppercase mt-1 mb-2" style="font-size: 11pt;">YATHARTH GROUP OF INSTITUTION</div>
+                            <div class="fw-bold text-uppercase mt-1 mb-1" style="font-size: 10.5pt;">YATHARTH GROUP OF INSTITUTION</div>
 
-                            <div class="d-flex justify-content-end align-items-center gap-3 my-2">
+                            <div class="d-flex justify-content-end align-items-center gap-3 my-1">
                                 ${stampMarkup}
                             </div>
 
-                            <div class="fw-bold" style="font-size: 11pt;">${p.sigName}</div>
+                            <div class="fw-bold" style="font-size: 10.5pt;">${p.sigName}</div>
                             <div class="fw-semibold small">Yatharth Group of Institution</div>
                             <div class="text-muted small">${p.sigDesig}</div>
                         </div>
@@ -1786,30 +1877,107 @@ if ($action === 'create' || $action === 'edit') {
     }
 
     // Download PDF from Preview
-    function downloadPdfFromPreview() {
+    async function exportOfferLetterToPdf(containerElement, filename, statusCallback) {
+        if (typeof statusCallback === 'function') statusCallback('Preparing PDF...');
+
+        if (!containerElement) {
+            alert('Document container element not found.');
+            if (typeof statusCallback === 'function') statusCallback('Ready');
+            return;
+        }
+
+        const sheets = containerElement.querySelectorAll('.a4-page-sheet');
+        if (!sheets.length) {
+            alert('No document pages found to export.');
+            if (typeof statusCallback === 'function') statusCallback('Ready');
+            return;
+        }
+
+        const zoomContainer = containerElement.closest('.offer-preview-zoom-container') || containerElement.parentElement;
+        const prevTransform = zoomContainer && zoomContainer.style ? zoomContainer.style.transform : '';
+        if (zoomContainer && zoomContainer.style) {
+            zoomContainer.style.transform = 'none';
+        }
+
+        try {
+            const JsPdfClass = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : (window.jsPDF || null);
+            if (!JsPdfClass || typeof html2canvas === 'undefined') {
+                throw new Error('PDF generation libraries are loading or unavailable. Please reload the page.');
+            }
+
+            const pdf = new JsPdfClass({
+                unit: 'mm',
+                format: 'a4',
+                orientation: 'portrait',
+                compress: true
+            });
+
+            for (let i = 0; i < sheets.length; i++) {
+                if (typeof statusCallback === 'function') {
+                    statusCallback(`Exporting page ${i + 1} of ${sheets.length}...`);
+                }
+                const sheet = sheets[i];
+
+                const prevShadow = sheet.style.boxShadow;
+                const prevMargin = sheet.style.margin;
+                sheet.style.boxShadow = 'none';
+                sheet.style.margin = '0 auto';
+
+                const canvas = await html2canvas(sheet, {
+                    scale: 2,
+                    useCORS: true,
+                    logging: false,
+                    allowTaint: true,
+                    backgroundColor: '#ffffff'
+                });
+
+                sheet.style.boxShadow = prevShadow;
+                sheet.style.margin = prevMargin;
+
+                const imgData = canvas.toDataURL('image/jpeg', 0.96);
+                if (i > 0) {
+                    pdf.addPage('a4', 'portrait');
+                }
+                pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+            }
+
+            if (typeof statusCallback === 'function') statusCallback('Saving PDF...');
+            pdf.save(filename);
+
+            if (typeof statusCallback === 'function') statusCallback('Downloaded!');
+        } catch (err) {
+            console.error('PDF export error:', err);
+            alert('Failed to generate PDF: ' + (err.message || 'Unknown error'));
+            if (typeof statusCallback === 'function') statusCallback('Error');
+        } finally {
+            if (zoomContainer && zoomContainer.style) {
+                zoomContainer.style.transform = prevTransform;
+            }
+        }
+    }
+
+    // Download PDF from Preview
+    async function downloadPdfFromPreview() {
         const element = document.getElementById('livePagesRoot');
         const num = document.getElementById('field_offer_letter_no').value || 'Document';
         const filename = 'Appointment_Letter_' + num.replace(/[\/\\?%*:|"<>]/g, '_') + '.pdf';
         
         const badge = document.getElementById('liveSaveBadge');
-        badge.innerText = 'Generating PDF...';
-        badge.className = 'badge bg-info text-dark';
-
-        const opt = {
-            margin:       [0, 0, 0, 0],
-            filename:     filename,
-            image:        { type: 'jpeg', quality: 0.98 },
-            html2canvas:  { scale: 2, useCORS: true, logging: false },
-            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-            pagebreak:    { mode: ['css', 'legacy'] }
-        };
-        html2pdf().set(opt).from(element).save().then(() => {
-            badge.innerText = 'Downloaded!';
-            badge.className = 'badge bg-success text-white';
-            setTimeout(() => {
-                badge.innerText = 'Ready';
-                badge.className = 'badge bg-light text-dark border';
-            }, 2500);
+        await exportOfferLetterToPdf(element, filename, statusText => {
+            if (badge) {
+                badge.innerText = statusText;
+                if (statusText === 'Downloaded!') {
+                    badge.className = 'badge bg-success text-white';
+                    setTimeout(() => {
+                        badge.innerText = 'Ready';
+                        badge.className = 'badge bg-light text-dark border';
+                    }, 2500);
+                } else if (statusText === 'Error') {
+                    badge.className = 'badge bg-danger text-white';
+                } else {
+                    badge.className = 'badge bg-info text-dark';
+                }
+            }
         });
     }
 

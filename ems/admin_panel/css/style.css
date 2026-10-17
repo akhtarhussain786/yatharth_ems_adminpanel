@@ -2557,7 +2557,8 @@ body.sidebar-collapsed .main-content {
 }
 .a4-page-sheet {
     width: 210mm;
-    min-height: 297mm;
+    height: 297mm;
+    max-height: 297mm;
     margin: 0 auto 28px auto;
     background: #ffffff;
     box-shadow: 0 8px 24px rgba(0,0,0,0.35);
@@ -2570,25 +2571,29 @@ body.sidebar-collapsed .main-content {
     color: #111827;
     font-family: 'Times New Roman', Times, Georgia, serif;
     page-break-after: always;
+    page-break-inside: avoid;
+    overflow: hidden;
 }
 .a4-page-header {
     background: #0e646a;
     color: #ffffff;
-    padding: 10px 24px;
+    padding: 8px 22px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     box-sizing: border-box;
-    min-height: 68px;
+    min-height: 56px;
+    max-height: 56px;
+    flex-shrink: 0;
 }
 .a4-page-header .brand-area {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
 }
 .a4-page-header .brand-logo-img {
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
     object-fit: contain;
     border-radius: 50%;
     background: #ffffff;
@@ -2596,7 +2601,7 @@ body.sidebar-collapsed .main-content {
 }
 .a4-page-header .brand-title {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 19px;
+    font-size: 17px;
     font-weight: 800;
     letter-spacing: 0.5px;
     color: #ffffff;
@@ -2606,85 +2611,88 @@ body.sidebar-collapsed .main-content {
 .a4-page-header .contact-area {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     color: #ffffff;
-    font-size: 11.5px;
+    font-size: 10.5px;
     font-weight: 600;
     text-align: right;
-    line-height: 1.5;
+    line-height: 1.45;
 }
 .a4-page-body {
-    padding: 22px 34px 20px 34px;
+    padding: 14px 28px 12px 28px;
     flex: 1 1 auto;
     box-sizing: border-box;
-    font-size: 10pt;
-    line-height: 1.45;
+    font-size: 9.3pt;
+    line-height: 1.36;
     position: relative;
     color: #111827;
+    overflow: hidden;
 }
 .a4-page-body p, .a4-page-body li {
-    font-size: 9.8pt;
-    line-height: 1.45;
+    font-size: 8.9pt;
+    line-height: 1.33;
     text-align: justify;
-    margin-bottom: 6px;
+    margin-bottom: 3.5px;
     color: #111827;
 }
 .a4-page-body .doc-main-title {
-    font-size: 18pt;
+    font-size: 15.5pt;
     font-weight: 900;
     text-decoration: underline;
     text-align: center;
     text-transform: uppercase;
-    letter-spacing: 1.5px;
-    margin-top: 4px;
-    margin-bottom: 16px;
+    letter-spacing: 1.2px;
+    margin-top: 0;
+    margin-bottom: 8px;
     color: #000000;
 }
 .a4-page-body .doc-section-title {
-    font-size: 10.5pt;
+    font-size: 9.6pt;
     font-weight: 900;
     text-transform: uppercase;
-    margin-top: 14px;
-    margin-bottom: 7px;
+    margin-top: 7px;
+    margin-bottom: 3px;
     color: #000000;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.2px;
 }
 .a4-page-body .doc-sub-heading {
-    font-size: 10pt;
+    font-size: 9.1pt;
     font-weight: 800;
-    margin-top: 10px;
-    margin-bottom: 5px;
+    margin-top: 5px;
+    margin-bottom: 2px;
     color: #111827;
 }
 .a4-page-footer {
     background: #0e646a;
     color: #ffffff;
-    padding: 7px 16px;
+    padding: 5px 14px;
     text-align: center;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 8pt;
+    font-size: 7.2pt;
     font-weight: 700;
-    letter-spacing: 0.6px;
+    letter-spacing: 0.5px;
     box-sizing: border-box;
-    min-height: 30px;
+    min-height: 24px;
+    max-height: 24px;
     text-transform: uppercase;
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 .a4-page-sheet .page-number-tag {
     position: absolute;
-    bottom: 34px;
-    right: 28px;
+    bottom: 28px;
+    right: 24px;
     font-family: 'Inter', sans-serif;
-    font-size: 7.5pt;
+    font-size: 7.2pt;
     color: #6b7280;
     font-weight: 600;
 }
 .a4-page-sheet .doc-ref-tag {
     position: absolute;
-    bottom: 34px;
-    left: 28px;
+    bottom: 28px;
+    left: 24px;
     font-family: 'Inter', sans-serif;
-    font-size: 7.5pt;
+    font-size: 7.2pt;
     color: #4b5563;
     font-weight: 600;
     letter-spacing: 0.3px;
@@ -2693,13 +2701,19 @@ body.sidebar-collapsed .main-content {
     display: inline-block;
     position: relative;
     user-select: none;
+    width: 95px !important;
+    height: 95px !important;
+}
+.official-stamp-seal svg {
+    width: 95px !important;
+    height: 95px !important;
 }
 .official-stamp-seal .sig-overlay {
     position: absolute;
-    top: 36px;
-    left: 15px;
+    top: 26px;
+    left: 10px;
     font-family: 'Brush Script MT', 'Dancing Script', cursive, serif;
-    font-size: 21px;
+    font-size: 16px;
     font-weight: 700;
     color: #1e3a8a;
     transform: rotate(-9deg);
@@ -2709,15 +2723,15 @@ body.sidebar-collapsed .main-content {
 }
 .candidate-init-seal {
     font-family: 'Brush Script MT', 'Dancing Script', cursive, serif;
-    font-size: 20px;
+    font-size: 18px;
     color: #1e3a8a;
     transform: rotate(-6deg);
     font-weight: 700;
     display: inline-block;
 }
 .thumb-impression-box {
-    width: 90px;
-    height: 100px;
+    width: 78px;
+    height: 82px;
     border: 1.5px dashed #64748b;
     border-radius: 6px;
     display: flex;
@@ -2726,10 +2740,10 @@ body.sidebar-collapsed .main-content {
     justify-content: center;
     background: #f8fafc;
     color: #64748b;
-    font-size: 8pt;
+    font-size: 7.2pt;
     font-family: 'Inter', sans-serif;
     text-align: center;
-    padding: 4px;
+    padding: 3px;
 }
 
 @media print {
@@ -2767,11 +2781,15 @@ body.sidebar-collapsed .main-content {
     .a4-page-sheet {
         margin: 0 !important;
         box-shadow: none !important;
-        width: 100% !important;
-        min-height: 297mm !important;
+        width: 210mm !important;
         height: 297mm !important;
+        max-height: 297mm !important;
         page-break-after: always !important;
         page-break-inside: avoid !important;
+        overflow: hidden !important;
+    }
+    .a4-page-sheet:last-child {
+        page-break-after: avoid !important;
     }
     @page {
         size: A4 portrait;
