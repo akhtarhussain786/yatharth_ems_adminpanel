@@ -1548,6 +1548,159 @@ function runSchemaMigrations($db)
     });
 
     // ---------------------------------------------------------------
+    // Fix: Re-allocate Akhtar Hussain's Rs 10,000 payment to August 2026 and fix all dues
+    // ---------------------------------------------------------------
+    SchemaGuard::ensure($db, 'fix_akhtar_salary_august2026_reallocation_v5', function ($db) {
+        $stmt = $db->prepare("SELECT id FROM employees WHERE employee_code = 'YGI001' OR first_name LIKE '%Akhtar%' LIMIT 1");
+        $stmt->execute();
+        $empId = $stmt->fetchColumn();
+
+        if ($empId) {
+            $empId = (int)$empId;
+
+            // 1. July 2026 -> PAID Rs. 15,000, Due 0
+            $stJul = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-07' OR payroll_month = '2026-07') ORDER BY id ASC");
+            $stJul->execute([$empId]);
+            $julId = $stJul->fetchColumn();
+            if ($julId) {
+                $db->prepare("
+                    UPDATE salary_processing SET
+                        month_year = '2026-07',
+                        payroll_month = '2026-07',
+                        basic_salary = 15000.00,
+                        base_earned_salary = 15000.00,
+                        current_net_salary = 15000.00,
+                        net_salary = 15000.00,
+                        previous_due = 0.00,
+                        total_payable = 15000.00,
+                        paid_amount = 15000.00,
+                        remaining_due = 0.00,
+                        payment_status = 'paid',
+                        lock_status = 'finalized',
+                        notes = 'July 2026 Salary paid on 13 Aug 2026'
+                    WHERE id = ?
+                ")->execute([$julId]);
+            }
+
+            // 2. August 2026 -> PARTIALLY PAID Rs. 10,000, Due Rs. 5,000
+            $stAug = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-08' OR payroll_month = '2026-08') ORDER BY id ASC");
+            $stAug->execute([$empId]);
+            $augId = $stAug->fetchColumn();
+            if (!$augId) {
+                $db->prepare("
+                    INSERT INTO salary_processing (
+                        employee_id, month_year, payroll_month, total_days_in_month, eligible_days, daily_rate,
+                        basic_salary, base_earned_salary, allowances, deductions,
+                        net_salary, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
+                        payment_status, notes, lock_status, created_at
+                    ) VALUES (
+                        ?, '2026-08', '2026-08', 31, 31, 500.00,
+                        15000.00, 15000.00, 0.00, 0.00,
+                        15000.00, 15000.00, 0.00, 15000.00, 10000.00, 5000.00,
+                        'partially_paid', 'August 2026 Salary (Rs. 10,000 paid via UPI, Rs. 5,000 due)', 'generated', NOW()
+                    )
+                ")->execute([$empId]);
+                $augId = (int)$db->lastInsertId();
+            } else {
+                $db->prepare("
+                    UPDATE salary_processing SET
+                        month_year = '2026-08',
+                        payroll_month = '2026-08',
+                        basic_salary = 15000.00,
+                        base_earned_salary = 15000.00,
+                        current_net_salary = 15000.00,
+                        net_salary = 15000.00,
+                        previous_due = 0.00,
+                        total_payable = 15000.00,
+                        paid_amount = 10000.00,
+                        remaining_due = 5000.00,
+                        payment_status = 'partially_paid',
+                        notes = 'August 2026 Salary (Rs. 10,000 paid via UPI, Rs. 5,000 due)'
+                    WHERE id = ?
+                ")->execute([$augId]);
+            }
+
+            // 3. September 2026 -> Previous Due Rs. 5,000, Total Payable Rs. 20,000, Due Rs. 20,000
+            $stSep = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-09' OR payroll_month = '2026-09') ORDER BY id ASC");
+            $stSep->execute([$empId]);
+            $sepId = $stSep->fetchColumn();
+            if ($sepId) {
+                $db->prepare("
+                    UPDATE salary_processing SET
+                        month_year = '2026-09',
+                        payroll_month = '2026-09',
+                        basic_salary = 15000.00,
+                        base_earned_salary = 15000.00,
+                        current_net_salary = 15000.00,
+                        net_salary = 15000.00,
+                        previous_due = 5000.00,
+                        total_payable = 20000.00,
+                        paid_amount = 0.00,
+                        remaining_due = 20000.00,
+                        payment_status = 'unpaid',
+                        notes = 'September 2026 (August Due: Rs. 5k, Total Due: Rs. 20k)'
+                    WHERE id = ?
+                ")->execute([$sepId]);
+            }
+
+            // 4. October 2026 -> Previous Due Rs. 20,000, Total Payable Rs. 35,000, Due Rs. 35,000
+            $stOct = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND (month_year = '2026-10' OR payroll_month = '2026-10') ORDER BY id ASC");
+            $stOct->execute([$empId]);
+            $octId = $stOct->fetchColumn();
+            if ($octId) {
+                $db->prepare("
+                    UPDATE salary_processing SET
+                        month_year = '2026-10',
+                        payroll_month = '2026-10',
+                        basic_salary = 15000.00,
+                        base_earned_salary = 15000.00,
+                        current_net_salary = 15000.00,
+                        net_salary = 15000.00,
+                        previous_due = 20000.00,
+                        total_payable = 35000.00,
+                        paid_amount = 0.00,
+                        remaining_due = 35000.00,
+                        payment_status = 'unpaid'
+                    WHERE id = ?
+                ")->execute([$octId]);
+            }
+
+            // 5. Reassign payments in salary_payments
+            $stP = $db->prepare("SELECT id, COALESCE(payment_amount, amount, 0) as amt FROM salary_payments WHERE employee_id = ? ORDER BY id ASC");
+            $stP->execute([$empId]);
+            $pays = $stP->fetchAll();
+
+            foreach ($pays as $p) {
+                $pid = (int)$p['id'];
+                $amt = (float)$p['amt'];
+                if (round($amt, 2) == 15000.00 && $julId) {
+                    $db->prepare("
+                        UPDATE salary_payments SET
+                            payroll_id = ?,
+                            payment_amount = 15000.00,
+                            payment_date = '2026-08-13',
+                            payment_method = 'bank_transfer',
+                            reference_no = 'NEFT8456345432676223',
+                            notes = 'July 2026 Salary payment received on 13 Aug 2026'
+                        WHERE id = ?
+                    ")->execute([$julId, $pid]);
+                } elseif (round($amt, 2) == 10000.00 && $augId) {
+                    $db->prepare("
+                        UPDATE salary_payments SET
+                            payroll_id = ?,
+                            payment_amount = 10000.00,
+                            payment_date = '2026-10-27',
+                            payment_method = 'upi',
+                            reference_no = 'UTR-76562002603',
+                            notes = 'August 2026 salary payment via UPI'
+                        WHERE id = ?
+                    ")->execute([$augId, $pid]);
+                }
+            }
+        }
+    });
+
+    // ---------------------------------------------------------------
     // Offer Letter Generator module & table
     // ---------------------------------------------------------------
     SchemaGuard::ensure($db, 'offer_letters_module_v1', function ($db) {

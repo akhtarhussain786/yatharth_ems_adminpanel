@@ -242,7 +242,7 @@ function calculateEmployeeSalary($db, $employeeId, $month, $options = []) {
     $paidAmount = 0.00;
     if ($existingProc && !empty($existingProc['id'])) {
         $payStmt = $db->prepare("
-            SELECT COALESCE(SUM(payment_amount), 0) as total_paid
+            SELECT COALESCE(SUM(COALESCE(payment_amount, amount, 0)), 0) as total_paid
             FROM salary_payments
             WHERE payroll_id = ?
         ");
@@ -255,7 +255,7 @@ function calculateEmployeeSalary($db, $employeeId, $month, $options = []) {
     } else {
         // Check payments recorded by employee and month
         $payStmt = $db->prepare("
-            SELECT COALESCE(SUM(sp.payment_amount), 0) as total_paid
+            SELECT COALESCE(SUM(COALESCE(sp.payment_amount, sp.amount, 0)), 0) as total_paid
             FROM salary_payments sp
             JOIN salary_processing spr ON spr.id = sp.payroll_id
             WHERE sp.employee_id = ? AND (spr.month_year = ? OR spr.payroll_month = ?)
@@ -406,7 +406,7 @@ function calculatePreviousDueForEmployee($db, $employeeId, $currentMonth) {
             $mPaid = (float)($row['paid_amount'] ?? 0);
             
             // Check payments table for this payroll
-            $paySt = $db->prepare("SELECT COALESCE(SUM(payment_amount), 0) FROM salary_payments WHERE payroll_id = ?");
+            $paySt = $db->prepare("SELECT COALESCE(SUM(COALESCE(payment_amount, amount, 0)), 0) FROM salary_payments WHERE payroll_id = ?");
             $paySt->execute([$row['id']]);
             $directPaid = (float)$paySt->fetchColumn();
             $actualPaid = max($mPaid, $directPaid);
@@ -582,6 +582,11 @@ function recordSalaryPayment($db, $employeeId, $paymentAmount, $paymentDate, $pa
             // Refresh payroll totals
             refreshPayrollPaymentTotals($db, $targetPayrollId);
 
+            // Recalculate subsequent months carryover dues
+            if (!empty($payroll['month_year'])) {
+                recalculateSubsequentDues($db, $employeeId, $payroll['month_year']);
+            }
+
             $allocations[] = [
                 'payroll_id' => $targetPayrollId,
                 'month'      => $payroll['month_year'],
@@ -597,6 +602,8 @@ function recordSalaryPayment($db, $employeeId, $paymentAmount, $paymentDate, $pa
             ");
             $stmt->execute([$employeeId]);
             $pendingPayrolls = $stmt->fetchAll();
+
+            $earliestAllocatedMonth = null;
 
             if (empty($pendingPayrolls)) {
                 // If no unpaid payroll, find the latest payroll or record payment linked to employee
@@ -625,7 +632,7 @@ function recordSalaryPayment($db, $employeeId, $paymentAmount, $paymentDate, $pa
                     if ($remainingPayment <= 0) break;
 
                     // Calculate remaining due for this specific payroll record
-                    $payStmt = $db->prepare("SELECT COALESCE(SUM(payment_amount), 0) FROM salary_payments WHERE payroll_id = ?");
+                    $payStmt = $db->prepare("SELECT COALESCE(SUM(COALESCE(payment_amount, amount, 0)), 0) FROM salary_payments WHERE payroll_id = ?");
                     $payStmt->execute([$p['id']]);
                     $currentPaid = (float)$payStmt->fetchColumn();
 
@@ -643,6 +650,10 @@ function recordSalaryPayment($db, $employeeId, $paymentAmount, $paymentDate, $pa
                     $insPay->execute([$p['id'], $employeeId, $allocatedToThisMonth, $paymentDate, $paymentMethod, $referenceNo, $notes, $userId]);
 
                     refreshPayrollPaymentTotals($db, $p['id']);
+
+                    if (!$earliestAllocatedMonth) {
+                        $earliestAllocatedMonth = $p['month_year'];
+                    }
 
                     $allocations[] = [
                         'payroll_id' => $p['id'],
@@ -667,6 +678,10 @@ function recordSalaryPayment($db, $employeeId, $paymentAmount, $paymentDate, $pa
                         'month'      => $lastP['month_year'],
                         'amount'     => $remainingPayment
                     ];
+                }
+
+                if ($earliestAllocatedMonth) {
+                    recalculateSubsequentDues($db, $employeeId, $earliestAllocatedMonth);
                 }
             }
         }
@@ -699,7 +714,7 @@ function refreshPayrollPaymentTotals($db, $payrollId) {
     $p = $stmt->fetch();
     if (!$p) return;
 
-    $payStmt = $db->prepare("SELECT COALESCE(SUM(payment_amount), 0) FROM salary_payments WHERE payroll_id = ?");
+    $payStmt = $db->prepare("SELECT COALESCE(SUM(COALESCE(payment_amount, amount, 0)), 0) FROM salary_payments WHERE payroll_id = ?");
     $payStmt->execute([$payrollId]);
     $totalPaid = (float)$payStmt->fetchColumn();
 
@@ -724,6 +739,51 @@ function refreshPayrollPaymentTotals($db, $payrollId) {
         WHERE id = ?
     ");
     $upStmt->execute([$totalPaid, $remDue, $status, $totalPayable, $payrollId]);
+}
+
+/**
+ * Recalculate carryover previous dues and remaining dues for all subsequent months of an employee.
+ */
+function recalculateSubsequentDues($db, $employeeId, $fromMonth) {
+    if (!$employeeId || !$fromMonth) return;
+
+    try {
+        $stmt = $db->prepare("
+            SELECT id, month_year, net_salary, current_net_salary, base_earned_salary, paid_amount
+            FROM salary_processing
+            WHERE employee_id = ? AND month_year > ?
+            ORDER BY month_year ASC
+        ");
+        $stmt->execute([$employeeId, $fromMonth]);
+        $subsequentPayrolls = $stmt->fetchAll();
+
+        foreach ($subsequentPayrolls as $sp) {
+            $spId = (int)$sp['id'];
+            $spMonth = $sp['month_year'];
+            $newPrevDue = calculatePreviousDueForEmployee($db, $employeeId, $spMonth);
+            $net = (float)(!empty($sp['current_net_salary']) ? $sp['current_net_salary'] : (!empty($sp['net_salary']) ? $sp['net_salary'] : $sp['base_earned_salary']));
+            $newTotalPayable = round($net + $newPrevDue, 2);
+
+            $paySt = $db->prepare("SELECT COALESCE(SUM(COALESCE(payment_amount, amount, 0)), 0) FROM salary_payments WHERE payroll_id = ?");
+            $paySt->execute([$spId]);
+            $paid = (float)$paySt->fetchColumn();
+            if ($paid <= 0 && !empty($sp['paid_amount'])) {
+                $paid = (float)$sp['paid_amount'];
+            }
+
+            $newRemDue = max(0, round($newTotalPayable - $paid, 2));
+            $newStatus = ($newRemDue == 0 && $newTotalPayable > 0) ? 'paid' : ($paid > 0 ? 'partially_paid' : 'unpaid');
+
+            $up = $db->prepare("
+                UPDATE salary_processing
+                SET previous_due = ?, total_payable = ?, paid_amount = ?, remaining_due = ?, payment_status = ?
+                WHERE id = ?
+            ");
+            $up->execute([$newPrevDue, $newTotalPayable, $paid, $newRemDue, $newStatus, $spId]);
+        }
+    } catch (Throwable $ex) {
+        error_log("recalculateSubsequentDues error: " . $ex->getMessage());
+    }
 }
 
 /**

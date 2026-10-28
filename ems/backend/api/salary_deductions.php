@@ -279,125 +279,6 @@ function handleSalaryReportRequest($action, $param) {
                 $allPayments = [];
             }
 
-            // Auto-heal Akhtar Hussain / single payment misallocation if found
-            if (($empObj['employee_code'] === 'YGI001' || stripos($empObj['first_name'], 'Akhtar') !== false)) {
-                $hasSepPaid = isset($procRecords['2026-09']) && (float)($procRecords['2026-09']['paid_amount'] ?? 0) > 0;
-                $julUnpaid = !isset($procRecords['2026-07']) || (float)($procRecords['2026-07']['paid_amount'] ?? 0) == 0;
-                if ($hasSepPaid || $julUnpaid) {
-                    try {
-                        // 1. July 2026 -> Check if exists or insert
-                        $stmtJ = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-07'");
-                        $stmtJ->execute([$targetEmpId]);
-                        $jId = $stmtJ->fetchColumn();
-                        if (!$jId) {
-                            $db->prepare("
-                                INSERT INTO salary_processing (
-                                    employee_id, month_year, total_days_in_month, daily_rate, base_earned_salary,
-                                    net_salary, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
-                                    present_days, payment_status, lock_status, notes, created_at
-                                ) VALUES (
-                                    ?, '2026-07', 31, 500.00, 15000.00,
-                                    15000.00, 15000.00, 0.00, 15000.00, 15000.00, 0.00,
-                                    31, 'paid', 'finalized', 'July 2026 Salary paid on 13 Aug 2026', NOW()
-                                )
-                            ")->execute([$targetEmpId]);
-                            $jId = (int)$db->lastInsertId();
-                        } else {
-                            $db->prepare("
-                                UPDATE salary_processing SET
-                                    base_earned_salary = 15000.00,
-                                    net_salary = 15000.00,
-                                    current_net_salary = 15000.00,
-                                    previous_due = 0.00,
-                                    total_payable = 15000.00,
-                                    paid_amount = 15000.00,
-                                    remaining_due = 0.00,
-                                    payment_status = 'paid',
-                                    lock_status = 'finalized',
-                                    notes = 'July 2026 Salary paid on 13 Aug 2026'
-                                WHERE id = ?
-                            ")->execute([$jId]);
-                        }
-
-                        // 2. Ensure August is UNPAID (Due: 15,000)
-                        $stmtA = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-08'");
-                        $stmtA->execute([$targetEmpId]);
-                        $aId = $stmtA->fetchColumn();
-                        if (!$aId) {
-                            $db->prepare("
-                                INSERT INTO salary_processing (
-                                    employee_id, month_year, total_days_in_month, daily_rate, base_earned_salary,
-                                    net_salary, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
-                                    present_days, payment_status, lock_status, notes, created_at
-                                ) VALUES (
-                                    ?, '2026-08', 31, 500.00, 15000.00,
-                                    15000.00, 15000.00, 0.00, 15000.00, 0.00, 15000.00,
-                                    31, 'unpaid', 'generated', 'August 2026 Salary Pending', NOW()
-                                )
-                            ")->execute([$targetEmpId]);
-                        } else {
-                            $db->prepare("
-                                UPDATE salary_processing SET
-                                    base_earned_salary = 15000.00,
-                                    net_salary = 15000.00,
-                                    current_net_salary = 15000.00,
-                                    previous_due = 0.00,
-                                    total_payable = 15000.00,
-                                    paid_amount = 0.00,
-                                    remaining_due = 15000.00,
-                                    payment_status = 'unpaid',
-                                    notes = 'August 2026 Salary Pending'
-                                WHERE id = ?
-                            ")->execute([$aId]);
-                        }
-
-                        // 3. Ensure September is UNPAID (Due: 30,000)
-                        $stmtS = $db->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-09'");
-                        $stmtS->execute([$targetEmpId]);
-                        $sId = $stmtS->fetchColumn();
-                        if ($sId) {
-                            $db->prepare("
-                                UPDATE salary_processing SET
-                                    base_earned_salary = 15000.00,
-                                    net_salary = 15000.00,
-                                    current_net_salary = 15000.00,
-                                    previous_due = 15000.00,
-                                    total_payable = 30000.00,
-                                    paid_amount = 0.00,
-                                    remaining_due = 30000.00,
-                                    payment_status = 'unpaid',
-                                    notes = 'September 2026 Ongoing (August Due: Rs. 15k, Total Due: Rs. 30k)'
-                                WHERE id = ?
-                            ")->execute([$sId]);
-                        }
-
-                        // 4. Link payment record to July
-                        if ($jId > 0) {
-                            $db->prepare("
-                                UPDATE salary_payments SET
-                                    payroll_id = ?,
-                                    payment_date = '2026-08-13',
-                                    payment_method = 'bank_transfer',
-                                    reference_no = 'NEFT8456345432676223',
-                                    notes = 'July 2026 Salary payment received on 13 Aug 2026'
-                                WHERE employee_id = ?
-                            ")->execute([$jId, $targetEmpId]);
-                        }
-
-                        // Re-fetch updated records
-                        $stmtProc = $db->prepare("SELECT * FROM salary_processing WHERE employee_id = ? ORDER BY month_year DESC");
-                        $stmtProc->execute([$targetEmpId]);
-                        $procRecords = [];
-                        foreach ($stmtProc->fetchAll() as $pr) {
-                            $procRecords[$pr['month_year']] = $pr;
-                        }
-
-                        $stmtPay->execute([$targetEmpId]);
-                        $allPayments = $stmtPay->fetchAll();
-                    } catch (Exception $e) {}
-                }
-            }
-
             $monthBreakdown = [];
             $totalEarned = 0.0;
             $totalPaid = 0.0;
@@ -436,6 +317,16 @@ function handleSalaryReportRequest($action, $param) {
                     }
                     return false;
                 }));
+
+                $mDirect = 0.0;
+                foreach ($monthPayments as $mp) {
+                    $mDirect += (float)($mp['payment_amount'] ?? $mp['amount'] ?? 0);
+                }
+                if ($mDirect > 0) {
+                    $paidAmt = max($paidAmt, $mDirect);
+                }
+                $remDue = max(0.0, round($netSal - $paidAmt, 2));
+                $status = ($remDue <= 0 && $netSal > 0) ? 'paid' : ($paidAmt > 0 ? 'partially_paid' : 'unpaid');
 
                 // Accumulate totals
                 $totalEarned += $netSal;

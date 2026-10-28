@@ -26,6 +26,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $payRef = sanitize($_POST['pay_reference'] ?? '');
         $payNotes = sanitize($_POST['pay_notes'] ?? '');
         $payPayrollId = !empty($_POST['pay_payroll_id']) ? (int)$_POST['pay_payroll_id'] : null;
+        $payMonthYear = !empty($_POST['pay_month_year']) ? filterMonth($_POST['pay_month_year']) : (!empty($_POST['pay_month_select']) ? filterMonth($_POST['pay_month_select']) : null);
+
+        // If target month was specified, ensure target payroll record exists so payment links to the exact month
+        if ($payMonthYear) {
+            $stFind = $pdo->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND (month_year = ? OR payroll_month = ?) ORDER BY id ASC");
+            $stFind->execute([$payEmpId, $payMonthYear, $payMonthYear]);
+            $existingPid = $stFind->fetchColumn();
+
+            if ($existingPid) {
+                $payPayrollId = (int)$existingPid;
+            } else {
+                $c = calculateEmployeeSalary($pdo, $payEmpId, $payMonthYear);
+                if ($c['success']) {
+                    $saveRes = saveSalaryPayrollRecord($pdo, $c, $_SESSION['admin_id'] ?? null);
+                    if ($saveRes['success'] && !empty($saveRes['payroll_id'])) {
+                        $payPayrollId = (int)$saveRes['payroll_id'];
+                    }
+                }
+            }
+        }
 
         $res = recordSalaryPayment($pdo, $payEmpId, $payAmount, $payDate, $payMethod, $payRef, $payNotes, $_SESSION['admin_id'] ?? null, $payPayrollId);
         if ($res['success']) {
@@ -93,115 +113,6 @@ if ($employee_id > 0) {
             $cursor = strtotime('+1 month', $cursor);
         }
 
-        // Auto-heal Akhtar Hussain payment to July 2026 if misallocated to September
-        if ($selectedEmployee['id'] == 12 || ($selectedEmployee['employee_code'] ?? '') === 'YGI001' || stripos($selectedEmployee['first_name'] ?? '', 'Akhtar') !== false) {
-            try {
-                // 1. July 2026 -> Check if exists or insert
-                $stJ = $pdo->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-07'");
-                $stJ->execute([$employee_id]);
-                $jId = $stJ->fetchColumn();
-
-                if (!$jId) {
-                    $pdo->prepare("
-                        INSERT INTO salary_processing (
-                            employee_id, month_year, total_days_in_month, daily_rate, base_earned_salary,
-                            net_salary, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
-                            present_days, payment_status, lock_status, notes, created_at
-                        ) VALUES (
-                            ?, '2026-07', 31, 500.00, 15000.00,
-                            15000.00, 15000.00, 0.00, 15000.00, 15000.00, 0.00,
-                            31, 'paid', 'finalized', 'July 2026 Salary paid on 13 Aug 2026', NOW()
-                        )
-                    ")->execute([$employee_id]);
-                    $jId = (int)$pdo->lastInsertId();
-                } else {
-                    $pdo->prepare("
-                        UPDATE salary_processing SET
-                            base_earned_salary = 15000.00,
-                            net_salary = 15000.00,
-                            current_net_salary = 15000.00,
-                            previous_due = 0.00,
-                            total_payable = 15000.00,
-                            paid_amount = 15000.00,
-                            remaining_due = 0.00,
-                            payment_status = 'paid',
-                            lock_status = 'finalized',
-                            notes = 'July 2026 Salary paid on 13 Aug 2026'
-                        WHERE id = ?
-                    ")->execute([$jId]);
-                }
-
-                // 2. August 2026 -> Ensure UNPAID (Due: 15,000)
-                $stA = $pdo->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-08'");
-                $stA->execute([$employee_id]);
-                $aId = $stA->fetchColumn();
-
-                if (!$aId) {
-                    $pdo->prepare("
-                        INSERT INTO salary_processing (
-                            employee_id, month_year, total_days_in_month, daily_rate, base_earned_salary,
-                            net_salary, current_net_salary, previous_due, total_payable, paid_amount, remaining_due,
-                            present_days, payment_status, lock_status, notes, created_at
-                        ) VALUES (
-                            ?, '2026-08', 31, 500.00, 15000.00,
-                            15000.00, 15000.00, 0.00, 15000.00, 0.00, 15000.00,
-                            31, 'unpaid', 'generated', 'August 2026 Salary Pending', NOW()
-                        )
-                    ")->execute([$employee_id]);
-                } else {
-                    $pdo->prepare("
-                        UPDATE salary_processing SET
-                            base_earned_salary = 15000.00,
-                            net_salary = 15000.00,
-                            current_net_salary = 15000.00,
-                            previous_due = 0.00,
-                            total_payable = 15000.00,
-                            paid_amount = 0.00,
-                            remaining_due = 15000.00,
-                            payment_status = 'unpaid',
-                            notes = 'August 2026 Salary Pending'
-                        WHERE id = ?
-                    ")->execute([$aId]);
-                }
-
-                // 3. September 2026 -> Reset to UNPAID (Total Due: 30,000)
-                $stS = $pdo->prepare("SELECT id FROM salary_processing WHERE employee_id = ? AND month_year = '2026-09'");
-                $stS->execute([$employee_id]);
-                $sId = $stS->fetchColumn();
-
-                if ($sId) {
-                    $pdo->prepare("
-                        UPDATE salary_processing SET
-                            base_earned_salary = 15000.00,
-                            net_salary = 15000.00,
-                            current_net_salary = 15000.00,
-                            previous_due = 15000.00,
-                            total_payable = 30000.00,
-                            paid_amount = 0.00,
-                            remaining_due = 30000.00,
-                            payment_status = 'unpaid',
-                            notes = 'September 2026 Ongoing (August Due: Rs. 15k, Total Due: Rs. 30k)'
-                        WHERE id = ?
-                    ")->execute([$sId]);
-                }
-
-                // 4. Update salary_payments to link to July 2026 payroll record
-                if ($jId > 0) {
-                    $pdo->prepare("
-                        UPDATE salary_payments SET
-                            payroll_id = ?,
-                            payment_date = '2026-08-13',
-                            payment_method = 'bank_transfer',
-                            reference_no = 'NEFT8456345432676223',
-                            notes = 'July 2026 Salary payment received on 13 Aug 2026'
-                        WHERE employee_id = ?
-                    ")->execute([$jId, $employee_id]);
-                }
-            } catch (Throwable $ex) {
-                error_log("Akhtar salary fix error: " . $ex->getMessage());
-            }
-        }
-
         // Fetch existing salary processing records
         $procStmt = $pdo->prepare("SELECT * FROM salary_processing WHERE employee_id = ? ORDER BY month_year DESC");
         $procStmt->execute([$employee_id]);
@@ -233,9 +144,11 @@ if ($employee_id > 0) {
             $employeePayments = [];
         }
 
-        // Process months reverse chronologically
-        for ($i = count($monthsList) - 1; $i >= 0; $i--) {
-            $m = $monthsList[$i];
+        // Process months forward chronologically to accurately propagate previous dues
+        $runningCumulativeDue = 0.00;
+        $tempLedger = [];
+
+        foreach ($monthsList as $m) {
             $mName = date('F Y', strtotime($m . '-01'));
 
             try {
@@ -243,30 +156,18 @@ if ($employee_id > 0) {
                     $pr = $procRecords[$m];
                     $netSal = (float)($pr['net_salary'] ?? $pr['current_net_salary'] ?? $pr['base_earned_salary'] ?? 0);
                     $paidAmt = (float)($pr['paid_amount'] ?? 0);
-                    $status = strtolower($pr['payment_status'] ?? ($paidAmt >= $netSal ? 'paid' : ($paidAmt > 0 ? 'partially_paid' : 'unpaid')));
-                    $remDue = (float)($pr['remaining_due'] ?? max(0, $netSal - $paidAmt));
-                    $prevDue = (float)($pr['previous_due'] ?? 0);
-                    $totPayable = (float)($pr['total_payable'] ?? ($netSal + $prevDue));
                     $payrollId = (int)$pr['id'];
                     $calcObj = $pr;
                 } else {
                     $calc = calculateEmployeeSalary($pdo, $employee_id, $m);
                     $netSal = (float)($calc['current_net_salary'] ?? $calc['monthly_salary'] ?? 0);
                     $paidAmt = (float)($calc['paid_amount'] ?? 0);
-                    $status = strtolower($calc['payment_status'] ?? ($paidAmt >= $netSal ? 'paid' : ($paidAmt > 0 ? 'partially_paid' : 'unpaid')));
-                    $remDue = (float)($calc['remaining_due'] ?? max(0, $netSal - $paidAmt));
-                    $prevDue = (float)($calc['previous_due'] ?? 0);
-                    $totPayable = (float)($calc['total_payable'] ?? ($netSal + $prevDue));
                     $payrollId = (int)($calc['payroll_id'] ?? 0);
                     $calcObj = $calc;
                 }
             } catch (Throwable $ce) {
                 $netSal = (float)($selectedEmployee['salary'] ?? 0);
                 $paidAmt = 0.0;
-                $status = 'unpaid';
-                $remDue = $netSal;
-                $prevDue = 0.0;
-                $totPayable = $netSal;
                 $payrollId = 0;
                 $calcObj = [];
             }
@@ -276,26 +177,39 @@ if ($employee_id > 0) {
                 if (!empty($p['payroll_id']) && (int)$p['payroll_id'] > 0) {
                     return ($payrollId > 0 && (int)$p['payroll_id'] === $payrollId);
                 }
+                if (!empty($p['payroll_month_year']) && $p['payroll_month_year'] === $m) {
+                    return true;
+                }
                 if (!empty($p['payment_date']) && date('Y-m', strtotime($p['payment_date'])) === $m) {
                     return true;
                 }
                 return false;
             }));
 
-            // Filter status if filter applied
-            if ($statusFilter && $status !== $statusFilter) {
-                continue;
+            // Calculate actual payments from payment transaction records
+            $mDirectPaid = 0.00;
+            foreach ($mPayments as $mp) {
+                $mDirectPaid += (float)($mp['payment_amount'] ?? $mp['amount'] ?? 0);
+            }
+            if ($mDirectPaid > 0) {
+                $paidAmt = max($paidAmt, $mDirectPaid);
             }
 
-            $ledgerSummary['total_earned'] += $netSal;
-            $ledgerSummary['total_paid'] += $paidAmt;
-            $ledgerSummary['total_months']++;
+            $prevDue = $runningCumulativeDue;
+            $totPayable = round($netSal + $prevDue, 2);
+            $remDue = max(0.00, round($totPayable - $paidAmt, 2));
 
-            if ($status === 'paid' || ($paidAmt >= $netSal && $netSal > 0)) {
-                $ledgerSummary['paid_months']++;
+            // Status determination
+            if ($remDue == 0 && $totPayable > 0 && $paidAmt > 0) {
+                $status = 'paid';
+            } elseif ($paidAmt > 0) {
+                $status = 'partially_paid';
             } else {
-                $ledgerSummary['unpaid_months']++;
+                $status = 'unpaid';
             }
+
+            // Next month carries forward remaining balance
+            $runningCumulativeDue = $remDue;
 
             // Calculate anniversary pay cycle from employee joining date
             $joinDay = (int)date('d', strtotime($joiningDate));
@@ -310,7 +224,7 @@ if ($employee_id > 0) {
             $cyclePeriodFormatted = date('d M Y', strtotime($cycleStartStr)) . ' – ' . date('d M Y', strtotime($cycleEndStr));
             $dueDateFormatted = date('d M Y', strtotime($cycleDueDateStr));
 
-            $employeeLedger[] = [
+            $tempLedger[] = [
                 'month_year'     => $m,
                 'month_name'     => $mName,
                 'cycle_period'   => $cyclePeriodFormatted,
@@ -329,8 +243,29 @@ if ($employee_id > 0) {
             ];
         }
 
-        // Total Outstanding Dues is exactly Total Earned minus Total Paid
-        $ledgerSummary['total_due'] = max(0, $ledgerSummary['total_earned'] - $ledgerSummary['total_paid']);
+        // Calculate summary across all months
+        foreach ($tempLedger as $tl) {
+            $ledgerSummary['total_earned'] += $tl['net_salary'];
+            $ledgerSummary['total_paid']   += $tl['paid_amount'];
+            $ledgerSummary['total_months']++;
+
+            if ($tl['payment_status'] === 'paid') {
+                $ledgerSummary['paid_months']++;
+            } else {
+                $ledgerSummary['unpaid_months']++;
+            }
+        }
+        $ledgerSummary['total_due'] = max(0.00, round($ledgerSummary['total_earned'] - $ledgerSummary['total_paid'], 2));
+
+        // Display reverse chronologically (latest month first)
+        $employeeLedger = array_reverse($tempLedger);
+
+        // Apply payment_status filter if requested
+        if ($statusFilter) {
+            $employeeLedger = array_values(array_filter($employeeLedger, function($row) use ($statusFilter) {
+                return $row['payment_status'] === $statusFilter;
+            }));
+        }
     }
 } else {
     // All Employees Summary Overview
@@ -513,7 +448,7 @@ require_once '../includes/header.php';
                 <i class="fas fa-print mr-1"></i> Print Statement
             </button>
             <?php if ($selectedEmployee): ?>
-            <button class="btn btn-success btn-sm" data-toggle="modal" data-target="#recordPaymentModal">
+            <button class="btn btn-success btn-sm" onclick="openQuickPay(<?= $selectedEmployee['id'] ?>, '', '', '', '')">
                 <i class="fas fa-hand-holding-usd mr-1"></i> Record Payment
             </button>
             <?php endif; ?>
@@ -762,7 +697,7 @@ require_once '../includes/header.php';
                                                 <i class="fas fa-file-invoice"></i> Slip
                                             </a>
                                             <?php if ($row['remaining_due'] > 0): ?>
-                                                <button type="button" class="btn btn-outline-success" onclick="openQuickPay(<?= $selectedEmployee['id'] ?>, <?= $row['payroll_id'] ?>, <?= $row['remaining_due'] ?>, '<?= $row['month_name'] ?>')" title="Pay Dues">
+                                                <button type="button" class="btn btn-outline-success" onclick="openQuickPay(<?= $selectedEmployee['id'] ?>, <?= $row['payroll_id'] ?>, <?= $row['remaining_due'] ?>, '<?= addslashes($row['month_name']) ?>', '<?= $row['month_year'] ?>')" title="Pay Dues">
                                                     <i class="fas fa-rupee-sign"></i> Pay
                                                 </button>
                                             <?php endif; ?>
@@ -939,6 +874,7 @@ require_once '../includes/header.php';
                 <input type="hidden" name="post_action" value="pay_salary">
                 <input type="hidden" name="pay_employee_id" id="modal_pay_employee_id" value="<?= $selectedEmployee['id'] ?? 0 ?>">
                 <input type="hidden" name="pay_payroll_id" id="modal_pay_payroll_id" value="">
+                <input type="hidden" name="pay_month_year" id="modal_pay_month_year" value="">
 
                 <div class="modal-body">
                     <div class="form-group">
@@ -946,9 +882,22 @@ require_once '../includes/header.php';
                         <input type="text" class="form-control" value="<?= htmlspecialchars(($selectedEmployee['first_name'] ?? '') . ' ' . ($selectedEmployee['last_name'] ?? '')) ?>" readonly>
                     </div>
 
-                    <div class="form-group" id="target_month_group" style="display:none;">
-                        <label class="small font-weight-bold">Target Month:</label>
-                        <input type="text" class="form-control" id="modal_target_month_name" readonly>
+                    <div class="form-group" id="target_month_group">
+                        <label class="small font-weight-bold">Target Month / Period: <span class="text-danger">*</span></label>
+                        <select name="pay_month_select" id="modal_target_month_select" class="form-control" onchange="onTargetMonthSelectChange(this)">
+                            <option value="" data-payroll-id="" data-due="<?= $ledgerSummary['total_due'] ?? '' ?>">-- Auto-allocate (Oldest Pending Dues First / FIFO) --</option>
+                            <?php if (!empty($employeeLedger)): ?>
+                                <?php foreach ($employeeLedger as $el): ?>
+                                    <option value="<?= $el['month_year'] ?>" 
+                                            data-payroll-id="<?= $el['payroll_id'] ?>" 
+                                            data-due="<?= $el['remaining_due'] ?>"
+                                            data-name="<?= htmlspecialchars($el['month_name']) ?>">
+                                        <?= htmlspecialchars($el['month_name']) ?> (Due: ₹<?= number_format($el['remaining_due'], 2) ?> - <?= strtoupper(str_replace('_', ' ', $el['payment_status'])) ?>)
+                                    </option>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </select>
+                        <input type="hidden" id="modal_target_month_name" value="">
                     </div>
 
                     <div class="form-group">
@@ -994,16 +943,35 @@ require_once '../includes/header.php';
 </div>
 
 <script>
-function openQuickPay(empId, payrollId, remainingDue, monthName) {
+function onTargetMonthSelectChange(sel) {
+    var opt = sel.options[sel.selectedIndex];
+    var pid = opt ? opt.getAttribute('data-payroll-id') : '';
+    var due = opt ? opt.getAttribute('data-due') : '';
+    var mName = opt ? opt.getAttribute('data-name') : '';
+
+    document.getElementById('modal_pay_payroll_id').value = pid || '';
+    document.getElementById('modal_pay_month_year').value = sel.value || '';
+    document.getElementById('modal_target_month_name').value = mName || '';
+
+    if (due && parseFloat(due) > 0) {
+        document.getElementById('modal_pay_amount').value = parseFloat(due).toFixed(2);
+    }
+}
+
+function openQuickPay(empId, payrollId, remainingDue, monthName, monthYear) {
     document.getElementById('modal_pay_employee_id').value = empId;
     document.getElementById('modal_pay_payroll_id').value = payrollId || '';
-    document.getElementById('modal_pay_amount').value = remainingDue || '';
+    document.getElementById('modal_pay_month_year').value = monthYear || '';
+    document.getElementById('modal_target_month_name').value = monthName || '';
+    document.getElementById('modal_pay_amount').value = (remainingDue !== undefined && remainingDue !== null && remainingDue !== '') ? remainingDue : '';
     
-    if (monthName) {
-        document.getElementById('target_month_group').style.display = 'block';
-        document.getElementById('modal_target_month_name').value = monthName;
-    } else {
-        document.getElementById('target_month_group').style.display = 'none';
+    var sel = document.getElementById('modal_target_month_select');
+    if (sel) {
+        if (monthYear) {
+            sel.value = monthYear;
+        } else {
+            sel.value = '';
+        }
     }
     
     $('#recordPaymentModal').modal('show');
