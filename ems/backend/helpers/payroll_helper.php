@@ -242,7 +242,7 @@ function calculateEmployeeSalary($db, $employeeId, $month, $options = []) {
     $paidAmount = 0.00;
     if ($existingProc && !empty($existingProc['id'])) {
         $payStmt = $db->prepare("
-            SELECT COALESCE(SUM(COALESCE(payment_amount, amount, 0)), 0) as total_paid
+            SELECT COALESCE(SUM(payment_amount), 0) as total_paid
             FROM salary_payments
             WHERE payroll_id = ?
         ");
@@ -255,7 +255,7 @@ function calculateEmployeeSalary($db, $employeeId, $month, $options = []) {
     } else {
         // Check payments recorded by employee and month
         $payStmt = $db->prepare("
-            SELECT COALESCE(SUM(COALESCE(sp.payment_amount, sp.amount, 0)), 0) as total_paid
+            SELECT COALESCE(SUM(sp.payment_amount), 0) as total_paid
             FROM salary_payments sp
             JOIN salary_processing spr ON spr.id = sp.payroll_id
             WHERE sp.employee_id = ? AND (spr.month_year = ? OR spr.payroll_month = ?)
@@ -406,7 +406,7 @@ function calculatePreviousDueForEmployee($db, $employeeId, $currentMonth) {
             $mPaid = (float)($row['paid_amount'] ?? 0);
             
             // Check payments table for this payroll
-            $paySt = $db->prepare("SELECT COALESCE(SUM(COALESCE(payment_amount, amount, 0)), 0) FROM salary_payments WHERE payroll_id = ?");
+            $paySt = $db->prepare("SELECT COALESCE(SUM(payment_amount), 0) FROM salary_payments WHERE payroll_id = ?");
             $paySt->execute([$row['id']]);
             $directPaid = (float)$paySt->fetchColumn();
             $actualPaid = max($mPaid, $directPaid);
@@ -632,7 +632,7 @@ function recordSalaryPayment($db, $employeeId, $paymentAmount, $paymentDate, $pa
                     if ($remainingPayment <= 0) break;
 
                     // Calculate remaining due for this specific payroll record
-                    $payStmt = $db->prepare("SELECT COALESCE(SUM(COALESCE(payment_amount, amount, 0)), 0) FROM salary_payments WHERE payroll_id = ?");
+                    $payStmt = $db->prepare("SELECT COALESCE(SUM(payment_amount), 0) FROM salary_payments WHERE payroll_id = ?");
                     $payStmt->execute([$p['id']]);
                     $currentPaid = (float)$payStmt->fetchColumn();
 
@@ -714,7 +714,7 @@ function refreshPayrollPaymentTotals($db, $payrollId) {
     $p = $stmt->fetch();
     if (!$p) return;
 
-    $payStmt = $db->prepare("SELECT COALESCE(SUM(COALESCE(payment_amount, amount, 0)), 0) FROM salary_payments WHERE payroll_id = ?");
+    $payStmt = $db->prepare("SELECT COALESCE(SUM(payment_amount), 0) FROM salary_payments WHERE payroll_id = ?");
     $payStmt->execute([$payrollId]);
     $totalPaid = (float)$payStmt->fetchColumn();
 
@@ -764,7 +764,7 @@ function recalculateSubsequentDues($db, $employeeId, $fromMonth) {
             $net = (float)(!empty($sp['current_net_salary']) ? $sp['current_net_salary'] : (!empty($sp['net_salary']) ? $sp['net_salary'] : $sp['base_earned_salary']));
             $newTotalPayable = round($net + $newPrevDue, 2);
 
-            $paySt = $db->prepare("SELECT COALESCE(SUM(COALESCE(payment_amount, amount, 0)), 0) FROM salary_payments WHERE payroll_id = ?");
+            $paySt = $db->prepare("SELECT COALESCE(SUM(payment_amount), 0) FROM salary_payments WHERE payroll_id = ?");
             $paySt->execute([$spId]);
             $paid = (float)$paySt->fetchColumn();
             if ($paid <= 0 && !empty($sp['paid_amount'])) {

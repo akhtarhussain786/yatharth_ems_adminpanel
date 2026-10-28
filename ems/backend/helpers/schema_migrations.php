@@ -1666,7 +1666,7 @@ function runSchemaMigrations($db)
             }
 
             // 5. Reassign payments in salary_payments
-            $stP = $db->prepare("SELECT id, COALESCE(payment_amount, amount, 0) as amt FROM salary_payments WHERE employee_id = ? ORDER BY id ASC");
+            $stP = $db->prepare("SELECT id, payment_amount as amt FROM salary_payments WHERE employee_id = ? ORDER BY id ASC");
             $stP->execute([$empId]);
             $pays = $stP->fetchAll();
 

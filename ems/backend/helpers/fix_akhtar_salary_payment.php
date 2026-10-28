@@ -181,7 +181,7 @@ try {
     }
 
     // 5. Fix salary_payments table: link 15k to July and 10k to August
-    $stmtPayCheck = $db->prepare("SELECT id, payment_date, payroll_id, COALESCE(payment_amount, amount, 0) as amt FROM salary_payments WHERE employee_id = ? ORDER BY id ASC");
+    $stmtPayCheck = $db->prepare("SELECT id, payment_date, payroll_id, payment_amount as amt FROM salary_payments WHERE employee_id = ? ORDER BY id ASC");
     $stmtPayCheck->execute([$empId]);
     $payments = $stmtPayCheck->fetchAll();
 
