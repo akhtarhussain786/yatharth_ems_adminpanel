@@ -71,6 +71,10 @@ function handleLeadRequest($action, $param) {
             return importLeadsCSV($db, $auth, $data);
         case 'assign_sales':
             return assignToSales($db, $auth, $data);
+        case 'assign_batch':
+            return assignBatchLeads($db, $auth, $data);
+        case 'telecallers':
+            return getTelecallersList($db, $auth);
         default:
             return ['success' => false, 'message' => 'Invalid action'];
     }
@@ -309,7 +313,14 @@ function getMyLeads($db, $auth) {
 }
 
 function autoAssignTelecaller($db) {
-    $stmt = $db->query("SELECT e.id FROM employees e JOIN users u ON u.id = e.user_id JOIN roles r ON r.id = u.role_id WHERE r.name IN ('telecaller_admin','telecaller') AND e.status = 1 ORDER BY (SELECT COUNT(*) FROM leads WHERE assigned_to = e.id AND status NOT IN ('won','lost','closed','duplicate')) ASC LIMIT 1");
+    $stmt = $db->query("SELECT e.id FROM employees e 
+        JOIN users u ON u.id = e.user_id 
+        JOIN roles r ON r.id = u.role_id 
+        LEFT JOIN departments d ON d.id = e.department_id
+        WHERE (r.name IN ('telecaller_admin','telecaller') OR LOWER(COALESCE(d.name,'')) = 'telecaller') 
+          AND e.status = 1 
+        ORDER BY (SELECT COUNT(*) FROM leads WHERE assigned_to = e.id AND status NOT IN ('won','lost','closed','duplicate')) ASC 
+        LIMIT 1");
     $tc = $stmt->fetch();
     return $tc ? $tc['id'] : null;
 }
@@ -666,4 +677,147 @@ function importLeadsCSV($db, $auth, $data) {
     }
 
     return ['success' => true, 'message' => "Imported $imported leads", 'imported' => $imported, 'errors' => $errors];
+}
+
+
+function getTelecallersList($db, $auth) {
+    $stmt = $db->query("
+        SELECT e.id, e.user_id, e.employee_code, e.first_name, e.last_name,
+               r.name as role_name, r.display_name as role_display,
+               (SELECT COUNT(*) FROM leads WHERE assigned_to = e.id AND status NOT IN ('won','lost','closed','duplicate')) as open_leads,
+               (SELECT COUNT(*) FROM leads WHERE assigned_to = e.id) as total_leads
+        FROM employees e
+        JOIN users u ON u.id = e.user_id
+        JOIN roles r ON r.id = u.role_id
+        LEFT JOIN departments d ON d.id = e.department_id
+        WHERE (r.name IN ('telecaller_admin','telecaller') OR LOWER(COALESCE(d.name,'')) = 'telecaller')
+          AND e.status = 1
+        ORDER BY e.first_name ASC
+    ");
+    return ['success' => true, 'data' => $stmt->fetchAll()];
+}
+
+function assignBatchLeads($db, $auth, $data) {
+    PermissionHelper::checkPermission($db, $auth, 'leads', 'can_edit');
+    if (!in_array($auth['role'], ['super_admin', 'admin', 'telecaller_admin', 'sales_admin', 'hr_admin', 'marketing_admin'], true)) {
+        http_response_code(403);
+        return ['success' => false, 'message' => 'Access denied: Only managers can assign leads'];
+    }
+
+    $leadIds = $data['lead_ids'] ?? [];
+    if (!is_array($leadIds) || empty($leadIds)) {
+        return ['success' => false, 'message' => 'Please select at least one lead to assign'];
+    }
+
+    $mode = $data['mode'] ?? 'manual';
+    $notes = Validator::sanitize($data['notes'] ?? '');
+    $assignedBy = $auth['user_id'] ?? null;
+
+    $telecallersStmt = $db->query("
+        SELECT e.id, e.user_id, e.first_name, e.last_name, e.employee_code,
+               (SELECT COUNT(*) FROM leads WHERE assigned_to = e.id AND status NOT IN ('won','lost','closed','duplicate')) as open_leads
+        FROM employees e
+        JOIN users u ON u.id = e.user_id
+        JOIN roles r ON r.id = u.role_id
+        LEFT JOIN departments d ON d.id = e.department_id
+        WHERE (r.name IN ('telecaller_admin','telecaller') OR LOWER(COALESCE(d.name,'')) = 'telecaller')
+          AND e.status = 1
+        ORDER BY open_leads ASC
+    ");
+    $activeTelecallers = $telecallersStmt->fetchAll();
+
+    if (empty($activeTelecallers)) {
+        return ['success' => false, 'message' => 'No active telecallers found in system'];
+    }
+
+    $db->beginTransaction();
+    $updatedCount = 0;
+    $historyStmt = $db->prepare("INSERT INTO lead_assignment_history (lead_id, previous_telecaller_id, new_telecaller_id, assigned_by, assignment_type, notes) VALUES (?, ?, ?, ?, ?, ?)");
+    $updateStmt = $db->prepare("UPDATE leads SET assigned_to = ?, assigned_by = ?, updated_at = NOW() WHERE id = ?");
+    $getLeadStmt = $db->prepare("SELECT id, customer_name, assigned_to FROM leads WHERE id = ?");
+    $notifStmt = $db->prepare("INSERT INTO notifications (user_id, title, message, type, link) VALUES ((SELECT user_id FROM employees WHERE id = ?), 'New Lead Assigned', CONCAT('Lead: ', ?, ' assigned to you'), 'lead', ?)");
+
+    try {
+        if ($mode === 'auto_balanced') {
+            $tcPool = [];
+            $specifiedIds = !empty($data['telecaller_ids']) && is_array($data['telecaller_ids']) ? array_map('intval', $data['telecaller_ids']) : [];
+            
+            foreach ($activeTelecallers as $tc) {
+                if (empty($specifiedIds) || in_array((int)$tc['id'], $specifiedIds, true)) {
+                    $tcPool[] = [
+                        'id' => (int)$tc['id'],
+                        'name' => trim($tc['first_name'] . ' ' . $tc['last_name']),
+                        'open_leads' => (int)$tc['open_leads']
+                    ];
+                }
+            }
+
+            if (empty($tcPool)) {
+                $db->rollBack();
+                return ['success' => false, 'message' => 'No matching telecallers selected for balanced distribution'];
+            }
+
+            foreach ($leadIds as $lid) {
+                $lid = intval($lid);
+                if ($lid <= 0) continue;
+
+                $getLeadStmt->execute([$lid]);
+                $lead = $getLeadStmt->fetch();
+                if (!$lead) continue;
+
+                usort($tcPool, function ($a, $b) {
+                    return $a['open_leads'] <=> $b['open_leads'];
+                });
+
+                $targetTc = &$tcPool[0];
+                $previousTc = $lead['assigned_to'] ? (int)$lead['assigned_to'] : null;
+
+                $updateStmt->execute([$targetTc['id'], $assignedBy, $lid]);
+                $historyStmt->execute([$lid, $previousTc, $targetTc['id'], $assignedBy, 'auto_balanced', $notes ?: 'Auto-balanced assignment']);
+
+                try {
+                    $notifStmt->execute([$targetTc['id'], $lead['customer_name'] ?? 'Lead', '/leads/' . $lid]);
+                } catch (Throwable $ne) {}
+
+                $targetTc['open_leads']++;
+                $updatedCount++;
+            }
+        } else {
+            $targetTcId = intval($data['telecaller_id'] ?? 0);
+            if ($targetTcId <= 0) {
+                $db->rollBack();
+                return ['success' => false, 'message' => 'Please select a telecaller to assign leads to'];
+            }
+
+            foreach ($leadIds as $lid) {
+                $lid = intval($lid);
+                if ($lid <= 0) continue;
+
+                $getLeadStmt->execute([$lid]);
+                $lead = $getLeadStmt->fetch();
+                if (!$lead) continue;
+
+                $previousTc = $lead['assigned_to'] ? (int)$lead['assigned_to'] : null;
+                $updateStmt->execute([$targetTcId, $assignedBy, $lid]);
+                $historyStmt->execute([$lid, $previousTc, $targetTcId, $assignedBy, 'manual', $notes ?: 'Manual assignment']);
+
+                try {
+                    $notifStmt->execute([$targetTcId, $lead['customer_name'] ?? 'Lead', '/leads/' . $lid]);
+                } catch (Throwable $ne) {}
+
+                $updatedCount++;
+            }
+        }
+
+        $db->commit();
+        return [
+            'success' => true,
+            'message' => "Successfully assigned $updatedCount lead(s)",
+            'updated_count' => $updatedCount
+        ];
+    } catch (Throwable $e) {
+        $db->rollBack();
+        error_log("assignBatchLeads error: " . $e->getMessage());
+        return ['success' => false, 'message' => 'Assignment failed: ' . $e->getMessage()];
+    }
 }

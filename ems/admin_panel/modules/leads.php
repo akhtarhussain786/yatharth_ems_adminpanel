@@ -192,6 +192,133 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['action'] ?? '') === 'update
     redirect('leads.php');
 }
 
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (($_GET['action'] ?? '') === 'batch_assign' || ($_POST['action'] ?? '') === 'batch_assign')) {
+    header('Content-Type: application/json');
+    requireModuleAccess('leads', 'can_edit');
+    if (!in_array($_SESSION['admin_role'] ?? '', ['super_admin', 'admin', 'telecaller_admin', 'sales_admin', 'marketing_admin'], true)) {
+        echo json_encode(['success' => false, 'message' => 'Unauthorized: Only managers can assign leads']);
+        exit;
+    }
+
+    $rawIds = $_POST['lead_ids'] ?? [];
+    if (is_string($rawIds)) {
+        $rawIds = json_decode($rawIds, true) ?? explode(',', $rawIds);
+    }
+    $leadIds = array_filter(array_map('intval', (array)$rawIds));
+
+    if (empty($leadIds)) {
+        echo json_encode(['success' => false, 'message' => 'Please select at least one lead']);
+        exit;
+    }
+
+    $mode = $_POST['mode'] ?? 'manual';
+    $targetTcId = (int)($_POST['telecaller_id'] ?? 0);
+    $notes = sanitize($_POST['notes'] ?? '');
+    $adminUserId = $_SESSION['admin_id'] ?? null;
+
+    $activeTc = $pdo->query("
+        SELECT e.id, e.user_id, e.first_name, e.last_name, e.employee_code,
+               (SELECT COUNT(*) FROM leads WHERE assigned_to = e.id AND status NOT IN ('won','lost','closed','duplicate')) as open_leads
+        FROM employees e
+        JOIN users u ON u.id = e.user_id
+        JOIN roles r ON r.id = u.role_id
+        LEFT JOIN departments d ON d.id = e.department_id
+        WHERE (r.name IN ('telecaller_admin','telecaller') OR LOWER(COALESCE(d.name,'')) = 'telecaller')
+          AND e.status = 1
+        ORDER BY open_leads ASC
+    ")->fetchAll();
+
+    if (empty($activeTc)) {
+        echo json_encode(['success' => false, 'message' => 'No active telecallers found in system']);
+        exit;
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $updStmt = $pdo->prepare("UPDATE leads SET assigned_to = ?, assigned_by = ?, updated_at = NOW() WHERE id = ?");
+        $histStmt = $pdo->prepare("INSERT INTO lead_assignment_history (lead_id, previous_telecaller_id, new_telecaller_id, assigned_by, assignment_type, notes) VALUES (?, ?, ?, ?, ?, ?)");
+        $getStmt = $pdo->prepare("SELECT id, customer_name, assigned_to FROM leads WHERE id = ?");
+        $notifStmt = $pdo->prepare("INSERT INTO notifications (user_id, title, message, type, link) VALUES ((SELECT user_id FROM employees WHERE id = ?), 'New Lead Assigned', CONCAT('Lead: ', ?, ' assigned to you'), 'lead', ?)");
+
+        $updatedCount = 0;
+
+        if ($mode === 'auto_balanced') {
+            $pool = [];
+            $selectedTcIds = !empty($_POST['telecaller_ids']) ? (is_array($_POST['telecaller_ids']) ? array_map('intval', $_POST['telecaller_ids']) : array_map('intval', explode(',', $_POST['telecaller_ids']))) : [];
+            
+            foreach ($activeTc as $t) {
+                if (empty($selectedTcIds) || in_array((int)$t['id'], $selectedTcIds, true)) {
+                    $pool[] = [
+                        'id' => (int)$t['id'],
+                        'name' => trim($t['first_name'] . ' ' . $t['last_name']),
+                        'open_leads' => (int)$t['open_leads']
+                    ];
+                }
+            }
+
+            if (empty($pool)) {
+                $pdo->rollBack();
+                echo json_encode(['success' => false, 'message' => 'No matching telecallers selected']);
+                exit;
+            }
+
+            foreach ($leadIds as $lid) {
+                $getStmt->execute([$lid]);
+                $lead = $getStmt->fetch();
+                if (!$lead) continue;
+
+                usort($pool, function($a, $b) {
+                    return $a['open_leads'] <=> $b['open_leads'];
+                });
+
+                $target = &$pool[0];
+                $prevTc = $lead['assigned_to'] ? (int)$lead['assigned_to'] : null;
+
+                $updStmt->execute([$target['id'], $adminUserId, $lid]);
+                $histStmt->execute([$lid, $prevTc, $target['id'], $adminUserId, 'auto_balanced', $notes ?: 'Auto-balanced distribution']);
+
+                try {
+                    $notifStmt->execute([$target['id'], $lead['customer_name'] ?? 'Lead', '/leads/' . $lid]);
+                } catch (Throwable $ne) {}
+
+                $target['open_leads']++;
+                $updatedCount++;
+            }
+        } else {
+            if ($targetTcId <= 0) {
+                $pdo->rollBack();
+                echo json_encode(['success' => false, 'message' => 'Please select a telecaller']);
+                exit;
+            }
+
+            foreach ($leadIds as $lid) {
+                $getStmt->execute([$lid]);
+                $lead = $getStmt->fetch();
+                if (!$lead) continue;
+
+                $prevTc = $lead['assigned_to'] ? (int)$lead['assigned_to'] : null;
+                $updStmt->execute([$targetTcId, $adminUserId, $lid]);
+                $histStmt->execute([$lid, $prevTc, $targetTcId, $adminUserId, 'manual', $notes ?: 'Manual assignment']);
+
+                try {
+                    $notifStmt->execute([$targetTcId, $lead['customer_name'] ?? 'Lead', '/leads/' . $lid]);
+                } catch (Throwable $ne) {}
+
+                $updatedCount++;
+            }
+        }
+
+        $pdo->commit();
+        echo json_encode(['success' => true, 'message' => "Successfully assigned $updatedCount lead(s)", 'updated_count' => $updatedCount]);
+        exit;
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        echo json_encode(['success' => false, 'message' => 'Failed to assign leads: ' . $e->getMessage()]);
+        exit;
+    }
+}
+
 if (isset($_GET['delete'])) {
     requireModuleAccess('leads', 'can_delete');
     $pdo->prepare("DELETE FROM leads WHERE id=?")->execute([intval($_GET['delete'])]);
@@ -310,7 +437,16 @@ try {
 // Get all employees for creator filter
 $allEmployees = $pdo->query("SELECT id, first_name, last_name, employee_code FROM employees WHERE status = 1 ORDER BY first_name")->fetchAll();
 
-$telecallers = $pdo->query("SELECT e.id, e.first_name, e.last_name, e.employee_code FROM employees e JOIN users u ON u.id = e.user_id JOIN roles r ON r.id = u.role_id WHERE r.name IN ('telecaller_admin','telecaller') AND e.status = 1 ORDER BY e.first_name")->fetchAll();
+$telecallers = $pdo->query("SELECT e.id, e.first_name, e.last_name, e.employee_code,
+    (SELECT COUNT(*) FROM leads WHERE assigned_to = e.id AND status NOT IN ('won','lost','closed','duplicate')) as open_leads,
+    (SELECT COUNT(*) FROM leads WHERE assigned_to = e.id) as total_leads
+FROM employees e 
+JOIN users u ON u.id = e.user_id 
+JOIN roles r ON r.id = u.role_id 
+LEFT JOIN departments d ON d.id = e.department_id
+WHERE (r.name IN ('telecaller_admin','telecaller') OR LOWER(COALESCE(d.name,'')) = 'telecaller') 
+  AND e.status = 1 
+ORDER BY e.first_name")->fetchAll();
 $salesUsers = $pdo->query("SELECT e.id, e.first_name, e.last_name, e.employee_code FROM employees e JOIN users u ON u.id = e.user_id JOIN roles r ON r.id = u.role_id WHERE r.name IN ('sales_admin','sales_executive','sales_manager') AND e.status = 1 ORDER BY e.first_name")->fetchAll();
 
 require_once '../includes/header.php';
@@ -576,15 +712,47 @@ unset($_SESSION['flash']);
 
 <!-- Leads Table -->
 <div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="fas fa-list"></i> All Leads (<?php echo count($leads); ?>)</span>
-        <span class="text-muted small">Showing latest leads first</span>
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+            <span><i class="fas fa-list"></i> All Leads (<?php echo count($leads); ?>)</span>
+            <span class="text-muted small">Showing latest leads first</span>
+        </div>
+        <div class="d-flex gap-2">
+            <?php if (hasModuleAccess('leads', 'can_edit') && in_array($_SESSION['admin_role'] ?? '', ['super_admin', 'admin', 'telecaller_admin', 'sales_admin'], true)): ?>
+            <button class="btn btn-sm btn-outline-success" onclick="openAssignLeadsModal('manual')">
+                <i class="fas fa-user-check me-1"></i>Assign Leads
+            </button>
+            <button class="btn btn-sm btn-outline-primary" onclick="openAssignLeadsModal('auto_balanced')">
+                <i class="fas fa-balance-scale me-1"></i>Auto-Balance Leads
+            </button>
+            <?php endif; ?>
+        </div>
+    </div>
+    
+    <!-- Floating Batch Selection Banner -->
+    <div id="leadSelectionBanner" class="alert alert-primary m-3 mb-0 py-2 px-3 d-none d-flex align-items-center justify-content-between">
+        <div>
+            <i class="fas fa-check-square me-1"></i>
+            <span class="fw-bold" id="selectedLeadCountText">0 leads selected</span>
+        </div>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-success" onclick="openAssignLeadsModal('manual')">
+                <i class="fas fa-user-plus me-1"></i>Assign Selected
+            </button>
+            <button type="button" class="btn btn-sm btn-primary" onclick="openAssignLeadsModal('auto_balanced')">
+                <i class="fas fa-balance-scale me-1"></i>Auto-Balance Selected
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearLeadSelection()">
+                Clear
+            </button>
+        </div>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-hover datatable mb-0" style="font-size:0.85rem">
                 <thead>
                     <tr>
+                        <th style="width:36px;" class="text-center"><input type="checkbox" id="selectAllLeadsMaster" onchange="toggleSelectAllLeads(this)"></th>
                         <th>Customer</th>
                         <th>Contact</th>
                         <th>Requirement</th>
@@ -615,6 +783,9 @@ unset($_SESSION['flash']);
                     ?>
                     <tr class="lead-row" style="cursor:pointer"
                         onclick='showLead(<?php echo htmlspecialchars(json_encode($l), ENT_QUOTES); ?>)'>
+                        <td class="text-center" onclick="event.stopPropagation()">
+                            <input type="checkbox" class="lead-select-chk" value="<?php echo $l['id']; ?>" onchange="onLeadCheckboxChange()">
+                        </td>
                         <td>
                             <strong><?php echo sanitize($l['customer_name']); ?></strong>
                             <?php if ($l['company_name']): ?>
@@ -893,4 +1064,293 @@ function showLead(l) {
 }
 </script>
 
+
+<!-- Assign Leads Modal -->
+<div class="modal fade" id="assignLeadsModal" tabindex="-1" aria-labelledby="assignLeadsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-success text-white">
+                <div>
+                    <h5 class="modal-title fw-bold" id="assignLeadsModalLabel"><i class="fas fa-users-cog me-2"></i>Assign Leads to Telecallers</h5>
+                    <div class="small opacity-75">Distribute selected or unassigned leads manually or via balanced workload strategy.</div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <!-- Mode Navigation Tabs -->
+                <ul class="nav nav-pills nav-fill mb-3" id="assignModeTabs" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active fw-semibold" id="tab-manual" data-bs-toggle="pill" data-bs-target="#mode-manual" type="button">
+                            <i class="fas fa-user-check me-1"></i>Manual Assignment
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link fw-semibold" id="tab-auto" data-bs-toggle="pill" data-bs-target="#mode-auto" type="button">
+                            <i class="fas fa-balance-scale me-1"></i>Auto-Balanced Workload
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="alert alert-light border d-flex align-items-center justify-content-between py-2 mb-3">
+                    <span class="small fw-semibold text-dark" id="assignSelectionSummary">
+                        0 leads selected for assignment
+                    </span>
+                    <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllUnassignedInTable()">
+                        Select All Unassigned on Page
+                    </button>
+                </div>
+
+                <div class="tab-content" id="assignModeTabContent">
+                    <!-- Tab 1: Manual Mode -->
+                    <div class="tab-pane fade show active" id="mode-manual" role="tabpanel">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Select Telecaller *</label>
+                            <select id="assignManualTelecallerSelect" class="form-select">
+                                <option value="">-- Choose Telecaller --</option>
+                                <?php foreach ($telecallers as $tc): ?>
+                                <option value="<?php echo $tc['id']; ?>" data-open="<?php echo $tc['open_leads'] ?? 0; ?>">
+                                    <?php echo sanitize($tc['first_name'] . ' ' . $tc['last_name']); ?> 
+                                    (<?php echo $tc['employee_code']; ?>) &bull; Current Open Leads: <?php echo $tc['open_leads'] ?? 0; ?>
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="form-text">All selected leads will be assigned directly to this telecaller.</div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: Auto Balanced Mode -->
+                    <div class="tab-pane fade" id="mode-auto" role="tabpanel">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Active Telecallers in Distribution Pool</label>
+                            <div class="border rounded p-3 bg-light">
+                                <?php foreach ($telecallers as $tc): ?>
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input auto-tc-pool-check" type="checkbox" value="<?php echo $tc['id']; ?>" id="tc_pool_<?php echo $tc['id']; ?>" data-name="<?php echo sanitize($tc['first_name'] . ' ' . $tc['last_name']); ?>" data-open="<?php echo $tc['open_leads'] ?? 0; ?>" checked onchange="calculateAutoBalancePreview()">
+                                    <label class="form-check-label d-flex justify-content-between align-items-center" for="tc_pool_<?php echo $tc['id']; ?>">
+                                        <span><strong><?php echo sanitize($tc['first_name'] . ' ' . $tc['last_name']); ?></strong> (<?php echo $tc['employee_code']; ?>)</span>
+                                        <span class="badge bg-secondary"><?php echo $tc['open_leads'] ?? 0; ?> active leads</span>
+                                    </label>
+                                </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <div class="form-text">Leads will be assigned one-by-one to whichever telecaller has the least open leads to ensure fair distribution.</div>
+                        </div>
+
+                        <!-- Live Distribution Preview Box -->
+                        <div class="p-3 border rounded bg-white" id="autoBalancePreviewBox" style="display:none;">
+                            <div class="fw-bold small text-primary mb-2"><i class="fas fa-chart-pie me-1"></i>Projected Distribution Preview</div>
+                            <div id="autoBalancePreviewDetails" class="small text-muted"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Assignment Notes -->
+                <div class="mt-3">
+                    <label class="form-label small text-muted">Assignment Notes (optional)</label>
+                    <input type="text" id="assignBatchNotes" class="form-control form-control-sm" placeholder="e.g. Assigned from October website campaign">
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="btnExecuteLeadAssignment" onclick="submitLeadAssignment()">
+                    <i class="fas fa-check-circle me-1"></i>Confirm Assignment
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function getSelectedLeadIds() {
+    const ids = [];
+    document.querySelectorAll('.lead-select-chk:checked').forEach(c => ids.push(parseInt(c.value, 10)));
+    return ids;
+}
+
+function onLeadCheckboxChange() {
+    const ids = getSelectedLeadIds();
+    const count = ids.length;
+    const banner = document.getElementById('leadSelectionBanner');
+    const countText = document.getElementById('selectedLeadCountText');
+    const master = document.getElementById('selectAllLeadsMaster');
+
+    if (count > 0) {
+        banner.classList.remove('d-none');
+        countText.textContent = `${count} lead${count === 1 ? '' : 's'} selected`;
+    } else {
+        banner.classList.add('d-none');
+    }
+
+    const allCheckboxes = document.querySelectorAll('.lead-select-chk');
+    if (master) {
+        master.checked = (allCheckboxes.length > 0 && count === allCheckboxes.length);
+    }
+}
+
+function toggleSelectAllLeads(master) {
+    document.querySelectorAll('.lead-select-chk').forEach(c => c.checked = master.checked);
+    onLeadCheckboxChange();
+}
+
+function clearLeadSelection() {
+    document.querySelectorAll('.lead-select-chk').forEach(c => c.checked = false);
+    onLeadCheckboxChange();
+}
+
+function selectAllUnassignedInTable() {
+    let count = 0;
+    document.querySelectorAll('.lead-row').forEach(row => {
+        const telecallerCell = row.children[6] ? row.children[6].textContent.trim() : '';
+        if (telecallerCell.toLowerCase().includes('unassigned') || telecallerCell === '-') {
+            const chk = row.querySelector('.lead-select-chk');
+            if (chk) {
+                chk.checked = true;
+                count++;
+            }
+        }
+    });
+    onLeadCheckboxChange();
+    updateAssignModalSummary();
+    calculateAutoBalancePreview();
+}
+
+function openAssignLeadsModal(defaultTab = 'manual') {
+    const ids = getSelectedLeadIds();
+    if (ids.length === 0) {
+        // Auto select unassigned if none checked
+        selectAllUnassignedInTable();
+        const newIds = getSelectedLeadIds();
+        if (newIds.length === 0) {
+            alert('Please select at least one lead from the table using the checkboxes.');
+            return;
+        }
+    }
+
+    if (defaultTab === 'auto_balanced') {
+        const tabTrigger = new bootstrap.Tab(document.getElementById('tab-auto'));
+        tabTrigger.show();
+    } else {
+        const tabTrigger = new bootstrap.Tab(document.getElementById('tab-manual'));
+        tabTrigger.show();
+    }
+
+    updateAssignModalSummary();
+    calculateAutoBalancePreview();
+    new bootstrap.Modal(document.getElementById('assignLeadsModal')).show();
+}
+
+function updateAssignModalSummary() {
+    const count = getSelectedLeadIds().length;
+    document.getElementById('assignSelectionSummary').textContent = `${count} lead${count === 1 ? '' : 's'} currently selected for assignment`;
+}
+
+function calculateAutoBalancePreview() {
+    const leadCount = getSelectedLeadIds().length;
+    const poolCheckboxes = document.querySelectorAll('.auto-tc-pool-check:checked');
+    const previewBox = document.getElementById('autoBalancePreviewBox');
+    const previewDetails = document.getElementById('autoBalancePreviewDetails');
+
+    if (leadCount === 0 || poolCheckboxes.length === 0) {
+        previewBox.style.display = 'none';
+        return;
+    }
+
+    const pool = [];
+    poolCheckboxes.forEach(c => {
+        pool.push({
+            id: parseInt(c.value, 10),
+            name: c.getAttribute('data-name'),
+            open: parseInt(c.getAttribute('data-open'), 10),
+            allocated: 0
+        });
+    });
+
+    for (let i = 0; i < leadCount; i++) {
+        pool.sort((a, b) => (a.open + a.allocated) - (b.open + b.allocated));
+        pool[0].allocated++;
+    }
+
+    let html = '<div class="row g-2">';
+    pool.forEach(p => {
+        html += `
+            <div class="col-md-6">
+                <div class="p-2 border rounded bg-light">
+                    <strong>${p.name}</strong><br>
+                    Current open leads: ${p.open} &rarr; <span class="badge bg-success">+${p.allocated} new</span> &rarr; Total: <strong>${p.open + p.allocated}</strong>
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+
+    previewDetails.innerHTML = html;
+    previewBox.style.display = 'block';
+}
+
+function submitLeadAssignment() {
+    const leadIds = getSelectedLeadIds();
+    if (leadIds.length === 0) {
+        alert('Please select at least one lead to assign.');
+        return;
+    }
+
+    const isAuto = document.getElementById('tab-auto').classList.contains('active');
+    const notes = document.getElementById('assignBatchNotes').value.trim();
+    const btn = document.getElementById('btnExecuteLeadAssignment');
+
+    const formData = new FormData();
+    formData.append('action', 'batch_assign');
+    formData.append('lead_ids', JSON.stringify(leadIds));
+    formData.append('notes', notes);
+
+    if (isAuto) {
+        const poolCheckboxes = document.querySelectorAll('.auto-tc-pool-check:checked');
+        if (poolCheckboxes.length === 0) {
+            alert('Please select at least one telecaller in the distribution pool.');
+            return;
+        }
+        const tcIds = Array.from(poolCheckboxes).map(c => parseInt(c.value, 10));
+        formData.append('mode', 'auto_balanced');
+        formData.append('telecaller_ids', JSON.stringify(tcIds));
+
+        if (!confirm(`Distribute ${leadIds.length} lead(s) across ${tcIds.length} telecaller(s) fairly?`)) return;
+    } else {
+        const tcSelect = document.getElementById('assignManualTelecallerSelect');
+        const tcId = parseInt(tcSelect.value, 10);
+        if (!tcId) {
+            alert('Please select a telecaller from the dropdown.');
+            return;
+        }
+        formData.append('mode', 'manual');
+        formData.append('telecaller_id', tcId);
+
+        const tcName = tcSelect.options[tcSelect.selectedIndex].text;
+        if (!confirm(`Assign ${leadIds.length} lead(s) to ${tcName}?`)) return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>Assigning...`;
+
+    fetch('leads.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            alert(res.message);
+            window.location.reload();
+        } else {
+            alert('Assignment failed: ' + (res.message || 'Unknown error'));
+            btn.disabled = false;
+            btn.innerHTML = `<i class="fas fa-check-circle me-1"></i>Confirm Assignment`;
+        }
+    })
+    .catch(err => {
+        alert('Error assigning leads: ' + err);
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fas fa-check-circle me-1"></i>Confirm Assignment`;
+    });
+}
+</script>
 <?php require_once '../includes/footer.php'; ?>

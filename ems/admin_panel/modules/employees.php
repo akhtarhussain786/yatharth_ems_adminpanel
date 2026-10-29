@@ -3,6 +3,214 @@ require_once '../includes/config.php';
 if (!isLoggedIn()) redirect(BASE_URL . 'index');
 requireModuleAccess('employees');
 
+// =============================================
+// Auto Assign Roles Mapping Engine & Endpoints
+// =============================================
+function determineProposedRole($emp, $rolesByName) {
+    $currentRoleName = $emp['role_name'] ?? '';
+    
+    // Protect Super Admin accounts
+    if ($currentRoleName === 'super_admin') {
+        return ['role_id' => (int)$emp['user_role_id'], 'role_name' => 'super_admin', 'status' => 'keep', 'reason' => 'Protected Super Admin account'];
+    }
+
+    $dept = strtolower(trim($emp['department_name'] ?? ''));
+    $desig = strtolower(trim($emp['designation_name'] ?? ''));
+
+    // Rule 1: Telecaller department or designation
+    if ($dept === 'telecaller' || strpos($desig, 'telecaller') !== false || strpos($desig, 'caller') !== false) {
+        $target = (strpos($desig, 'admin') !== false || strpos($desig, 'manager') !== false || strpos($desig, 'lead') !== false || strpos($desig, 'head') !== false) ? 'telecaller_admin' : 'telecaller';
+        if (isset($rolesByName[$target])) {
+            return ['role_id' => (int)$rolesByName[$target]['id'], 'role_name' => $target, 'status' => ($currentRoleName === $target ? 'match' : 'update'), 'reason' => "Dept: {$emp['department_name']} / Desig: {$emp['designation_name']}"];
+        }
+    }
+
+    // Rule 2: Marketing department
+    if (strpos($dept, 'market') !== false || strpos($desig, 'market') !== false) {
+        $target = (strpos($desig, 'admin') !== false || strpos($desig, 'manager') !== false || strpos($desig, 'head') !== false) ? 'marketing_admin' : 'marketing_executive';
+        if (isset($rolesByName[$target])) {
+            return ['role_id' => (int)$rolesByName[$target]['id'], 'role_name' => $target, 'status' => ($currentRoleName === $target ? 'match' : 'update'), 'reason' => "Dept: {$emp['department_name']} / Desig: {$emp['designation_name']}"];
+        }
+    }
+
+    // Rule 3: Human Resources / HR
+    if (strpos($dept, 'human') !== false || strpos($dept, 'hr') !== false || strpos($desig, 'hr') !== false) {
+        $target = (strpos($desig, 'admin') !== false || strpos($desig, 'manager') !== false || strpos($desig, 'head') !== false) ? 'hr_admin' : 'hr_executive';
+        if (isset($rolesByName[$target])) {
+            return ['role_id' => (int)$rolesByName[$target]['id'], 'role_name' => $target, 'status' => ($currentRoleName === $target ? 'match' : 'update'), 'reason' => "Dept: {$emp['department_name']} / Desig: {$emp['designation_name']}"];
+        }
+    }
+
+    // Rule 4: Accounts / Finance
+    if (strpos($dept, 'account') !== false || strpos($dept, 'finance') !== false || strpos($desig, 'account') !== false) {
+        $target = (strpos($desig, 'admin') !== false || strpos($desig, 'manager') !== false || strpos($desig, 'head') !== false) ? 'accounts_admin' : 'accounts_executive';
+        if (isset($rolesByName[$target])) {
+            return ['role_id' => (int)$rolesByName[$target]['id'], 'role_name' => $target, 'status' => ($currentRoleName === $target ? 'match' : 'update'), 'reason' => "Dept: {$emp['department_name']} / Desig: {$emp['designation_name']}"];
+        }
+    }
+
+    // Rule 5: Sales
+    if (strpos($dept, 'sales') !== false || strpos($desig, 'sales') !== false) {
+        if (strpos($desig, 'admin') !== false) {
+            $target = 'sales_admin';
+        } elseif (strpos($desig, 'manager') !== false || strpos($desig, 'lead') !== false) {
+            $target = 'sales_manager';
+        } else {
+            $target = 'sales_executive';
+        }
+        if (isset($rolesByName[$target])) {
+            return ['role_id' => (int)$rolesByName[$target]['id'], 'role_name' => $target, 'status' => ($currentRoleName === $target ? 'match' : 'update'), 'reason' => "Dept: {$emp['department_name']} / Desig: {$emp['designation_name']}"];
+        }
+    }
+
+    // Rule 6: IT / Developer
+    if (strpos($dept, 'it') !== false || strpos($desig, 'developer') !== false || strpos($desig, 'frontend') !== false || strpos($desig, 'flutter') !== false || strpos($desig, 'software') !== false) {
+        $target = isset($rolesByName['it_admin']) ? 'it_admin' : 'employee';
+        return ['role_id' => (int)$rolesByName[$target]['id'], 'role_name' => $target, 'status' => ($currentRoleName === $target ? 'match' : 'update'), 'reason' => "Dept: {$emp['department_name']} / Desig: {$emp['designation_name']}"];
+    }
+
+    return ['role_id' => null, 'role_name' => '', 'status' => 'ambiguous', 'reason' => 'Unrecognized department / designation. Please choose role manually.'];
+}
+
+if (isset($_GET['action']) && $_GET['action'] === 'preview_auto_assign_roles') {
+    header('Content-Type: application/json');
+    requireModuleAccess('employees', 'can_edit');
+    if (!in_array($_SESSION['admin_role'] ?? '', ['super_admin', 'admin'], true)) {
+        echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+        exit;
+    }
+
+    $allRoles = $pdo->query("SELECT id, name, COALESCE(display_name, description, name) as display_name FROM roles ORDER BY id")->fetchAll();
+    $rolesByName = [];
+    foreach ($allRoles as $r) {
+        $rolesByName[$r['name']] = $r;
+    }
+
+    $empRows = $pdo->query("
+        SELECT e.id as emp_id, e.employee_code, e.first_name, e.last_name, e.mobile, e.status as emp_status,
+               d.name as department_name, des.name as designation_name,
+               u.id as user_id, u.username, u.role_id as user_role_id,
+               r.name as role_name, COALESCE(r.display_name, r.description, r.name) as role_display
+        FROM employees e
+        JOIN users u ON u.id = e.user_id
+        LEFT JOIN roles r ON r.id = u.role_id
+        LEFT JOIN departments d ON d.id = e.department_id
+        LEFT JOIN designations des ON des.id = e.designation_id
+        WHERE e.status = 1
+        ORDER BY e.first_name ASC
+    ")->fetchAll();
+
+    $preview = [];
+    foreach ($empRows as $emp) {
+        $mapped = determineProposedRole($emp, $rolesByName);
+        $preview[] = [
+            'emp_id' => (int)$emp['emp_id'],
+            'user_id' => (int)$emp['user_id'],
+            'employee_code' => $emp['employee_code'],
+            'name' => trim($emp['first_name'] . ' ' . ($emp['last_name'] ?? '')),
+            'department' => $emp['department_name'] ?? 'Not Assigned',
+            'designation' => $emp['designation_name'] ?? 'Not Assigned',
+            'current_role_id' => (int)$emp['user_role_id'],
+            'current_role_name' => $emp['role_name'] ?? 'None',
+            'current_role_display' => $emp['role_display'] ?? 'None',
+            'proposed_role_id' => $mapped['role_id'],
+            'proposed_role_name' => $mapped['role_name'],
+            'action' => $mapped['status'],
+            'reason' => $mapped['reason'],
+        ];
+    }
+
+    echo json_encode(['success' => true, 'data' => $preview, 'roles' => $allRoles]);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'apply_auto_assign_roles') {
+    header('Content-Type: application/json');
+    requireModuleAccess('employees', 'can_edit');
+    if (!in_array($_SESSION['admin_role'] ?? '', ['super_admin', 'admin'], true)) {
+        echo json_encode(['success' => false, 'message' => 'Unauthorized: Only administrators can assign roles']);
+        exit;
+    }
+
+    $rawAssignments = $_POST['assignments'] ?? [];
+    if (is_string($rawAssignments)) {
+        $rawAssignments = json_decode($rawAssignments, true) ?? [];
+    }
+
+    if (empty($rawAssignments) || !is_array($rawAssignments)) {
+        echo json_encode(['success' => false, 'message' => 'No role assignments provided']);
+        exit;
+    }
+
+    $updated = 0;
+    $skipped = 0;
+    $failed = 0;
+
+    $pdo->beginTransaction();
+    try {
+        $updStmt = $pdo->prepare("UPDATE users SET role_id = ? WHERE id = ?");
+        $logStmt = $pdo->prepare("INSERT INTO activity_logs (user_id, action, module, description, ip_address) VALUES (?, 'role_auto_assign', 'employees', ?, ?)");
+
+        foreach ($rawAssignments as $item) {
+            $userId = (int)($item['user_id'] ?? 0);
+            $roleId = (int)($item['role_id'] ?? 0);
+            if ($userId <= 0 || $roleId <= 0) {
+                $skipped++;
+                continue;
+            }
+
+            $uStmt = $pdo->prepare("SELECT u.id, u.username, u.role_id, r.name as role_name FROM users u LEFT JOIN roles r ON r.id = u.role_id WHERE u.id = ?");
+            $uStmt->execute([$userId]);
+            $user = $uStmt->fetch();
+            if (!$user) {
+                $failed++;
+                continue;
+            }
+
+            if ($user['role_name'] === 'super_admin' && $_SESSION['admin_role'] !== 'super_admin') {
+                $skipped++;
+                continue;
+            }
+
+            if ((int)$user['role_id'] === $roleId) {
+                $skipped++;
+                continue;
+            }
+
+            $rStmt = $pdo->prepare("SELECT name FROM roles WHERE id = ?");
+            $rStmt->execute([$roleId]);
+            $targetRoleName = $rStmt->fetchColumn();
+
+            if ($targetRoleName === 'super_admin' && $_SESSION['admin_role'] !== 'super_admin') {
+                $skipped++;
+                continue;
+            }
+
+            $updStmt->execute([$roleId, $userId]);
+            $logStmt->execute([
+                $_SESSION['admin_id'] ?? 1,
+                "Auto assigned role for user {$user['username']} (ID: $userId) from {$user['role_name']} to $targetRoleName (Role ID: $roleId)",
+                $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'
+            ]);
+            $updated++;
+        }
+
+        $pdo->commit();
+        echo json_encode([
+            'success' => true,
+            'message' => "Roles successfully assigned. Updated: $updated, Skipped: $skipped, Failed: $failed",
+            'updated' => $updated,
+            'skipped' => $skipped,
+            'failed' => $failed,
+        ]);
+        exit;
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        echo json_encode(['success' => false, 'message' => 'Failed to apply roles: ' . $e->getMessage()]);
+        exit;
+    }
+}
+
 $message = '';
 
 // =============================================
@@ -270,9 +478,16 @@ require_once '../includes/header.php';
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="fw-bold"><i class="fas fa-users me-2"></i>Employee Management</h4>
-    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#employeeModal">
-        <i class="fas fa-plus me-1"></i>Add Employee
-    </button>
+    <div class="d-flex gap-2">
+        <?php if (hasModuleAccess('employees', 'can_edit') && in_array($_SESSION['admin_role'] ?? '', ['super_admin', 'admin'], true)): ?>
+        <button class="btn btn-outline-primary" onclick="openAutoAssignRolesModal()">
+            <i class="fas fa-user-shield me-1"></i>Auto Assign Roles
+        </button>
+        <?php endif; ?>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#employeeModal">
+            <i class="fas fa-plus me-1"></i>Add Employee
+        </button>
+    </div>
 </div>
 
 <?php if ($message): ?>
@@ -765,4 +980,285 @@ function openEmpSalarySummary(empId, empName) {
 }
 </script>
 
+
+<!-- Auto Assign Roles Modal -->
+<div class="modal fade" id="autoAssignRolesModal" tabindex="-1" aria-labelledby="autoAssignRolesModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <div>
+                    <h5 class="modal-title fw-bold" id="autoAssignRolesModalLabel"><i class="fas fa-user-shield me-2"></i>Auto Assign Roles</h5>
+                    <div class="small opacity-75">Detects departments & designations and maps users to approved roles. Review before applying.</div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <!-- Summary KPI Cards -->
+                <div class="row g-2 mb-3" id="roleSummaryStats">
+                    <div class="col-md-3">
+                        <div class="p-2 border rounded bg-light text-center">
+                            <span class="text-muted small">Total Users</span>
+                            <h5 class="fw-bold m-0 text-dark" id="statTotalUsers">0</h5>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="p-2 border rounded bg-light text-center border-warning">
+                            <span class="text-muted small">Proposed Updates</span>
+                            <h5 class="fw-bold m-0 text-warning" id="statProposedUpdates">0</h5>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="p-2 border rounded bg-light text-center border-success">
+                            <span class="text-muted small">Already Match</span>
+                            <h5 class="fw-bold m-0 text-success" id="statAlreadyMatch">0</h5>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="p-2 border rounded bg-light text-center border-info">
+                            <span class="text-muted small">Ambiguous / Manual</span>
+                            <h5 class="fw-bold m-0 text-info" id="statAmbiguous">0</h5>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="roleAssignLoading" class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <div class="mt-2 text-muted">Analyzing users, departments, and designations...</div>
+                </div>
+
+                <div id="roleAssignContent" style="display:none;">
+                    <div class="alert alert-info py-2 small d-flex align-items-center justify-content-between mb-3">
+                        <div>
+                            <i class="fas fa-info-circle me-1"></i>
+                            Select which role updates you want to apply. You can change any proposed role using the dropdown.
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllRoleUpdates(true)">Select Updates Only</button>
+                            <button type="button" class="btn btn-xs btn-outline-secondary" onclick="selectAllRoleUpdates(false)">Deselect All</button>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0" id="rolePreviewTable" style="font-size:0.88rem;">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width:40px;"><input type="checkbox" id="checkAllRoles" onchange="toggleCheckAllRoles(this)"></th>
+                                    <th>Employee</th>
+                                    <th>Dept & Designation</th>
+                                    <th>Current Role</th>
+                                    <th style="min-width:200px;">Proposed Role</th>
+                                    <th>Status / Reason</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rolePreviewBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="btnConfirmApplyRoles" onclick="applyAutoAssignRoles()" disabled>
+                    <i class="fas fa-check-circle me-1"></i>Confirm & Apply Role Assignments
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let rolePreviewData = [];
+let availableRolesList = [];
+
+function openAutoAssignRolesModal() {
+    const modal = new bootstrap.Modal(document.getElementById('autoAssignRolesModal'));
+    modal.show();
+
+    document.getElementById('roleAssignLoading').style.display = 'block';
+    document.getElementById('roleAssignContent').style.display = 'none';
+    document.getElementById('btnConfirmApplyRoles').disabled = true;
+
+    fetch('employees.php?action=preview_auto_assign_roles')
+        .then(res => res.json())
+        .then(res => {
+            document.getElementById('roleAssignLoading').style.display = 'none';
+            if (!res.success) {
+                alert(res.message || 'Failed to load preview');
+                return;
+            }
+
+            rolePreviewData = res.data || [];
+            availableRolesList = res.roles || [];
+
+            renderRolePreviewTable();
+            document.getElementById('roleAssignContent').style.display = 'block';
+            updateRoleAssignStats();
+        })
+        .catch(err => {
+            document.getElementById('roleAssignLoading').style.display = 'none';
+            alert('Error loading role preview: ' + err);
+        });
+}
+
+function renderRolePreviewTable() {
+    const tbody = document.getElementById('rolePreviewBody');
+    tbody.innerHTML = '';
+
+    rolePreviewData.forEach((item, idx) => {
+        const isUpdate = item.action === 'update';
+        const isMatch = item.action === 'match';
+        const isKeep = item.action === 'keep';
+        const isAmbiguous = item.action === 'ambiguous';
+
+        const row = document.createElement('tr');
+        if (isUpdate) row.classList.add('table-warning', 'table-opacity-25');
+
+        let badgeClass = 'bg-secondary';
+        let badgeText = 'Keep';
+        if (isUpdate) { badgeClass = 'bg-warning text-dark'; badgeText = 'Update'; }
+        else if (isMatch) { badgeClass = 'bg-success'; badgeText = 'Matching'; }
+        else if (isAmbiguous) { badgeClass = 'bg-info text-dark'; badgeText = 'Manual'; }
+
+        // Role select options
+        let roleOptions = availableRolesList.map(r => {
+            const selected = (item.proposed_role_id ? item.proposed_role_id === r.id : item.current_role_id === r.id) ? 'selected' : '';
+            return `<option value="${r.id}" ${selected}>${r.display_name || r.name}</option>`;
+        }).join('');
+
+        row.innerHTML = `
+            <td>
+                <input type="checkbox" class="role-apply-check" data-idx="${idx}" ${isUpdate ? 'checked' : ''} onchange="updateRoleAssignStats()">
+            </td>
+            <td>
+                <strong>${item.name}</strong>
+                <div class="small text-muted">${item.employee_code}</div>
+            </td>
+            <td>
+                <div><span class="badge bg-light text-dark border">${item.department}</span></div>
+                <small class="text-muted">${item.designation}</small>
+            </td>
+            <td>
+                <span class="badge bg-light text-primary border">${item.current_role_display}</span>
+            </td>
+            <td>
+                <select class="form-select form-select-sm role-select" data-idx="${idx}" onchange="onRoleSelectChange(this, ${idx})">
+                    ${roleOptions}
+                </select>
+            </td>
+            <td>
+                <span class="badge ${badgeClass} mb-1">${badgeText}</span>
+                <div class="small text-muted" style="font-size:0.75rem;">${item.reason}</div>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function onRoleSelectChange(selectElem, idx) {
+    const newRoleId = parseInt(selectElem.value, 10);
+    rolePreviewData[idx].proposed_role_id = newRoleId;
+    if (newRoleId !== rolePreviewData[idx].current_role_id) {
+        rolePreviewData[idx].action = 'update';
+        const chk = document.querySelector(`.role-apply-check[data-idx="${idx}"]`);
+        if (chk) chk.checked = true;
+    } else {
+        rolePreviewData[idx].action = 'match';
+    }
+    updateRoleAssignStats();
+}
+
+function toggleCheckAllRoles(master) {
+    document.querySelectorAll('.role-apply-check').forEach(c => c.checked = master.checked);
+    updateRoleAssignStats();
+}
+
+function selectAllRoleUpdates(updatesOnly) {
+    document.querySelectorAll('.role-apply-check').forEach(c => {
+        const idx = parseInt(c.getAttribute('data-idx'), 10);
+        if (updatesOnly) {
+            c.checked = (rolePreviewData[idx].action === 'update');
+        } else {
+            c.checked = false;
+        }
+    });
+    updateRoleAssignStats();
+}
+
+function updateRoleAssignStats() {
+    let total = rolePreviewData.length;
+    let updates = 0;
+    let matches = 0;
+    let ambiguous = 0;
+    let checkedCount = 0;
+
+    rolePreviewData.forEach((item, idx) => {
+        if (item.action === 'update') updates++;
+        else if (item.action === 'match') matches++;
+        else if (item.action === 'ambiguous') ambiguous++;
+
+        const chk = document.querySelector(`.role-apply-check[data-idx="${idx}"]`);
+        if (chk && chk.checked) checkedCount++;
+    });
+
+    document.getElementById('statTotalUsers').textContent = total;
+    document.getElementById('statProposedUpdates').textContent = updates;
+    document.getElementById('statAlreadyMatch').textContent = matches;
+    document.getElementById('statAmbiguous').textContent = ambiguous;
+
+    const btn = document.getElementById('btnConfirmApplyRoles');
+    btn.disabled = checkedCount === 0;
+    btn.innerHTML = `<i class="fas fa-check-circle me-1"></i>Apply ${checkedCount} Role Assignment${checkedCount === 1 ? '' : 's'}`;
+}
+
+function applyAutoAssignRoles() {
+    const selected = [];
+    document.querySelectorAll('.role-apply-check:checked').forEach(c => {
+        const idx = parseInt(c.getAttribute('data-idx'), 10);
+        const item = rolePreviewData[idx];
+        const select = document.querySelector(`.role-select[data-idx="${idx}"]`);
+        const chosenRoleId = select ? parseInt(select.value, 10) : item.proposed_role_id;
+        selected.push({
+            user_id: item.user_id,
+            role_id: chosenRoleId
+        });
+    });
+
+    if (selected.length === 0) {
+        alert('Please select at least one user to assign roles.');
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to apply roles for ${selected.length} user(s)? This will update user access permissions.`)) {
+        return;
+    }
+
+    const btn = document.getElementById('btnConfirmApplyRoles');
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>Saving...`;
+
+    const formData = new FormData();
+    formData.append('action', 'apply_auto_assign_roles');
+    formData.append('assignments', JSON.stringify(selected));
+
+    fetch('employees.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            alert(res.message);
+            window.location.reload();
+        } else {
+            alert('Failed: ' + (res.message || 'Unknown error'));
+            btn.disabled = false;
+            updateRoleAssignStats();
+        }
+    })
+    .catch(err => {
+        alert('Error applying roles: ' + err);
+        btn.disabled = false;
+        updateRoleAssignStats();
+    });
+}
+</script>
 <?php require_once '../includes/footer.php'; ?>

@@ -70,25 +70,41 @@ function getMyCallReports($db, $auth, $date) {
 
 function createCallReport($db, $auth, $data) {
     PermissionHelper::checkPermission($db, $auth, 'call_reports', 'can_create');
-    $eid = $auth['employee_id'];
+    $eid = $auth['employee_id'] ?: null;
+    $uid = $auth['user_id'] ?: null;
+    $leadId = !empty($data['lead_id']) ? intval($data['lead_id']) : null;
     $customerName = Validator::sanitize($data['customer_name'] ?? '');
     $customerPhone = Validator::sanitize($data['customer_phone'] ?? '');
     $callDuration = intval($data['call_duration'] ?? 0);
     $callType = Validator::sanitize($data['call_type'] ?? 'outgoing');
-    $status = Validator::sanitize($data['status'] ?? 'completed');
+    $status = Validator::sanitize($data['call_status'] ?? $data['status'] ?? 'completed');
+    $callOutcome = Validator::sanitize($data['call_outcome'] ?? $status);
     $notes = Validator::sanitize($data['notes'] ?? '');
     $followUpReq = intval($data['follow_up_required'] ?? 0);
     $callDate = Validator::sanitize($data['call_date'] ?? date('Y-m-d'));
 
-    // Neither was required, so a blank form saved a row with no customer on
-    // it at all — which is why the name and phone columns read empty in the
-    // admin list. createLead has always checked; this never did.
+    if ($customerName === '' && $leadId) {
+        $st = $db->prepare("SELECT customer_name, customer_phone, mobile FROM leads WHERE id = ?");
+        $st->execute([$leadId]);
+        if ($l = $st->fetch()) {
+            $customerName = $l['customer_name'];
+            if ($customerPhone === '') $customerPhone = $l['customer_phone'] ?: $l['mobile'];
+        }
+    }
+
     if ($customerName === '') return ['success' => false, 'message' => 'Customer name is required'];
     if ($customerPhone === '') return ['success' => false, 'message' => 'Customer phone is required'];
 
-    $stmt = $db->prepare("INSERT INTO call_reports (employee_id, customer_name, customer_phone, call_duration, call_type, status, notes, follow_up_required, call_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->execute([$eid, $customerName, $customerPhone, $callDuration, $callType, $status, $notes, $followUpReq, $callDate]);
-    return ['success' => true, 'message' => 'Call report created', 'id' => $db->lastInsertId()];
+    $stmt = $db->prepare("INSERT INTO call_reports (employee_id, user_id, lead_id, customer_name, customer_phone, call_duration, call_type, status, call_outcome, notes, follow_up_required, call_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$eid, $uid, $leadId, $customerName, $customerPhone, $callDuration, $callType, $status, $callOutcome, $notes, $followUpReq, $callDate]);
+    $callId = $db->lastInsertId();
+
+    if ($leadId) {
+        $db->prepare("UPDATE leads SET latest_call_status = ?, latest_call_notes = ?, latest_call_at = NOW() WHERE id = ?")
+           ->execute([$callOutcome, $notes, $leadId]);
+    }
+
+    return ['success' => true, 'message' => 'Call report created', 'id' => $callId];
 }
 
 function updateCallReport($db, $auth, $id, $data) {

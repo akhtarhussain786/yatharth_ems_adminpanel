@@ -1775,6 +1775,89 @@ function runSchemaMigrations($db)
             }
         }
     });
+
+    // ---------------------------------------------------------------
+    // Telecaller Leads Sync, Assignment History & Immediate Call Feedback
+    // ---------------------------------------------------------------
+    SchemaGuard::ensure($db, 'telecaller_leads_assignment_and_feedback_v1', function ($db) {
+        // 1. Safe columns on call_reports
+        SchemaGuard::addColumns($db, 'call_reports', [
+            'user_id'            => 'INT DEFAULT NULL',
+            'lead_id'            => 'INT DEFAULT NULL',
+            'call_outcome'       => "VARCHAR(100) DEFAULT NULL",
+            'follow_up_date'     => "DATETIME DEFAULT NULL",
+            'follow_up_time'     => "VARCHAR(20) DEFAULT NULL",
+            'status'             => "VARCHAR(50) DEFAULT 'completed'",
+        ]);
+
+        try {
+            SchemaGuard::modifyColumn($db, 'call_reports', 'status', "VARCHAR(50) DEFAULT 'completed'");
+        } catch (Throwable $e) {}
+
+        // Index call_reports for faster history lookup
+        try {
+            $db->exec("CREATE INDEX idx_call_lead_emp ON call_reports (lead_id, employee_id)");
+        } catch (Throwable $e) {}
+
+        // 2. Safe columns on leads for quick card display of latest feedback
+        SchemaGuard::addColumns($db, 'leads', [
+            'latest_call_status' => "VARCHAR(100) DEFAULT NULL",
+            'latest_call_notes'  => "TEXT DEFAULT NULL",
+            'latest_call_at'     => "DATETIME DEFAULT NULL",
+        ]);
+
+        // 3. Lead Assignment Audit History Table
+        SchemaGuard::reconcile($db, "CREATE TABLE IF NOT EXISTS lead_assignment_history (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            lead_id INT NOT NULL,
+            previous_telecaller_id INT NULL,
+            new_telecaller_id INT NOT NULL,
+            assigned_by INT NULL,
+            assignment_type ENUM('manual', 'auto_balanced', 'reassigned') DEFAULT 'manual',
+            notes VARCHAR(255) NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_lah_lead (lead_id),
+            INDEX idx_lah_telecaller (new_telecaller_id),
+            INDEX idx_lah_assigned_by (assigned_by)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        // 4. Ensure roles exist in roles table
+        $neededRoles = [
+            'super_admin'              => 'Super Admin',
+            'admin'                    => 'Admin',
+            'sub_admin'                => 'Sub Admin',
+            'manager'                  => 'Manager',
+            'employee'                 => 'Employee',
+            'hr_admin'                 => 'HR Admin',
+            'hr'                       => 'HR Manager',
+            'hr_executive'             => 'HR Executive',
+            'digital_marketing_admin'  => 'Digital Marketing Admin',
+            'marketing_admin'          => 'Marketing Admin',
+            'marketing_executive'      => 'Marketing Executive',
+            'telecaller_admin'         => 'Telecaller Admin',
+            'telecaller'               => 'Telecaller',
+            'accounts_admin'           => 'Accounts Admin',
+            'accounts'                 => 'Accounts Manager',
+            'accounts_executive'       => 'Accounts Executive',
+            'sales_admin'              => 'Sales Admin',
+            'sales_manager'            => 'Sales Manager',
+            'sales_executive'          => 'Sales Executive',
+            'it_admin'                 => 'IT Admin',
+        ];
+
+        foreach ($neededRoles as $rName => $rDisplay) {
+            try {
+                $chk = $db->prepare("SELECT id, display_name FROM roles WHERE name = ?");
+                $chk->execute([$rName]);
+                $existing = $chk->fetch();
+                if (!$existing) {
+                    $db->prepare("INSERT INTO roles (name, display_name, description) VALUES (?, ?, ?)")
+                       ->execute([$rName, $rDisplay, $rDisplay]);
+                } else if (empty($existing['display_name'])) {
+                    $db->prepare("UPDATE roles SET display_name = ? WHERE id = ?")
+                       ->execute([$rDisplay, $existing['id']]);
+                }
+            } catch (Throwable $re) {}
+        }
+    });
 }
-
-
